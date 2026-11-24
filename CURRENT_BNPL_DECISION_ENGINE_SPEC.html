@@ -1,0 +1,2103 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BRDG Pay – BNPL Scoring & Decision Engine</title>
+<style>
+  :root {
+    --bg: #ffffff; --bg-alt: #f6f8fa; --ink: #1a1f26; --ink-soft: #57606a;
+    --border: #d7dce2; --accent: #2054c9; --accent-soft: #eef3ff; --code-bg: #f2f4f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  .page { max-width: 980px; margin: 0 auto; padding: 48px 32px 96px; }
+  h1, h2, h3, h4 { font-weight: 650; line-height: 1.3; scroll-margin-top: 20px; }
+  h1 { font-size: 30px; border-bottom: 3px solid var(--accent); padding-bottom: 14px; margin-bottom: 6px; }
+  h2 { font-size: 23px; margin-top: 46px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 18px; margin-top: 32px; color: var(--accent); }
+  h4 { font-size: 15px; margin-top: 22px; }
+  p { color: var(--ink); }
+  a { color: var(--accent); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 0.88em; font-family: "SF Mono", Consolas, Menlo, monospace; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; }
+  pre code { background: none; padding: 0; font-size: 13px; }
+  pre.mermaid { background: var(--bg-alt); text-align: center; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0 22px; font-size: 13.5px; display: block; overflow-x: auto; }
+  th, td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-alt); font-weight: 650; white-space: nowrap; }
+  tr:nth-child(even) td { background: #fbfcfd; }
+  blockquote { margin: 16px 0; padding: 8px 16px; background: var(--accent-soft); border-left: 4px solid var(--accent); border-radius: 0 6px 6px 0; color: var(--ink-soft); }
+  ul, ol { padding-left: 24px; }
+  li { margin: 3px 0; }
+  .toc-badge { display:inline-block; background:var(--accent-soft); color:var(--accent); border-radius:6px; padding:2px 8px; font-size:12px; font-weight:600; margin-bottom: 18px; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#14181f; --bg-alt:#1b212b; --ink:#e7ebf1; --ink-soft:#9aa5b1; --border:#333c48; --accent:#7ea6ff; --accent-soft:#1c2740; --code-bg:#1e252f;
+    }
+    tr:nth-child(even) td { background: #171c24; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+<span class="toc-badge">AS-BUILT SPECIFICATION — GENERATED FROM CURRENT SOURCE CODE</span>
+<h1>BRDG Pay – BNPL Scoring &amp; Decision Engine</h1>
+<h2>Current As-Built Functional &amp; Technical Specification</h2>
+<p><strong>Status:</strong> Reverse-engineered from the current working source code and application behavior. This document supersedes the original TDD — where the two disagree, the current codebase (documented here) is correct.</p>
+<p><strong>Scope:</strong> Frontend-only React/TypeScript single-page application. No backend, no database, no real external integrations. All state is persisted in the browser&#39;s LocalStorage. All third-party systems (PACI, CINET, Mobile ID) are simulated.</p>
+<hr>
+<h2>Table of Contents</h2>
+<ul>
+<li><a href="#executive-overview">Executive Overview</a></li>
+<li><a href="#part-a--business-requirements-document-brd">PART A – Business Requirements Document</a></li>
+<li><a href="#part-b--functional-specification">PART B – Functional Specification</a></li>
+<li><a href="#part-c--technical-design-document-tdd">PART C – Technical Design Document</a></li>
+<li><a href="#part-d--configuration-specification">PART D – Configuration Specification</a></li>
+<li><a href="#part-e--ui--screen-specification">PART E – UI / Screen Specification</a></li>
+<li><a href="#part-f--decision-engine-logic">PART F – Decision Engine Logic</a></li>
+<li><a href="#part-g--data-model">PART G – Data Model</a></li>
+<li><a href="#part-h--api--service-contracts">PART H – API / Service Contracts</a></li>
+<li><a href="#part-i--sample-business-scenarios">PART I – Sample Business Scenarios</a></li>
+<li><a href="#part-j--application-rebuild-specification">PART J – Application Rebuild Specification</a></li>
+<li><a href="#appendix-1--key-differences-from-original-tdd">Appendix 1 – Key Differences from Original TDD</a></li>
+<li><a href="#appendix-2--known-assumptions--open-items">Appendix 2 – Known Assumptions / Open Items</a></li>
+</ul>
+<hr>
+<h2>Executive Overview</h2>
+<p><strong>What it does.</strong> BRDG Pay&#39;s Scoring &amp; Decisioning Playground is a configurable rules-and-scoring engine for Buy-Now-Pay-Later (BNPL) credit decisions. An administrator defines customer <strong>Segments</strong> (e.g. Student, Young Adult, Established), and for each segment configures: who is eligible (<strong>Eligibility Rules / Hard Gates</strong>), how they&#39;re scored (<strong>Scoring Model</strong>), what a score means (<strong>Decision Bands</strong> → outcome + tier), and how much credit a tier is worth (<strong>Credit Limit Rules</strong>). A <strong>Customer Playground</strong> lets anyone walk a synthetic customer through a wizard and run the live decision engine end-to-end, producing a fully-explained, auditable result. Manual-review cases can additionally be routed through an <strong>AI Manual Review Advisor</strong> that proposes (never finalizes) a recommendation for a human reviewer.</p>
+<p><strong>Main business objective.</strong> Let a business user configure and demo an entire BNPL credit-decisioning policy — routing, eligibility, scoring, tiering, credit limits — without any code change, and validate it interactively before it would ever be wired to real identity/bureau data and a real decisioning API.</p>
+<p><strong>Main user roles.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>What they do</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Configuration Administrator</td>
+<td>Defines/edits Segments, Eligibility Rules, Scoring Models, Decision Bands, Credit Limit Rules, Global Settings, AI Advisor settings, Field Catalog, Integration simulation state.</td>
+</tr>
+<tr>
+<td>Demo Operator / Tester</td>
+<td>Runs the Customer Playground with sample or custom data, inspects the full decision trace, reviews Decision History and the Dashboard.</td>
+</tr>
+<tr>
+<td>Manual Reviewer</td>
+<td>For a Manual Review outcome, runs the AI Advisor and Accepts / Overrides / Requests More Information — the human, not the AI, produces the final actionable outcome.</td>
+</tr>
+</tbody></table>
+<p><strong>Main workflow (end-to-end):</strong></p>
+<pre class="mermaid">flowchart TD
+  A[Customer Data Captured] --> B{Minimum Age Gate}
+  B -- fails --> R1[REJECT — no segment, no scoring]
+  B -- passes/unavailable --> C[Segment Routing — Age Range]
+  C --> D[Segment-Specific Eligibility Rules / Hard Gates]
+  D -- any applicable gate fails --> R2[REJECT]
+  D -- gate data indeterminate --> M1[MANUAL REVIEW]
+  D -- all applicable gates pass --> E[Scoring Model — normalize, weight, sum]
+  E -- model invalid or missing-weight threshold exceeded --> M2[MANUAL REVIEW]
+  E --> F[Decision Band Lookup]
+  F -- Reject band --> R3[REJECT — limit = 0]
+  F -- Manual Review band --> M3[MANUAL REVIEW]
+  M1 --> G[AI Manual Review Advisor - optional]
+  M2 --> G
+  M3 --> G
+  G --> H[Human Reviewer: Accept / Override / Request More Info]
+  F -- Approve band --> I[Tier Assigned]
+  I --> J[Credit Limit = MIN of Tier / Segment Max / Global Max]
+  J --> K[Final Decision + Full Audit Trail]
+  H --> K
+  R1 --> K
+  R2 --> K
+  R3 --> K
+</pre>
+<p><strong>Main functional modules.</strong> Segments, Decision Engine (Eligibility Rules / Scoring Model / Decision Bands / Credit Limits, per segment), Customer Playground, Result / Decision Trace, AI Manual Review Advisor, Dashboard, Decision History, Configuration Versions, Preapproved Marketing List, Integration Simulator, Field Catalog (Customer Data Fields), Settings.</p>
+<p><strong>What is configurable.</strong> Everything under Segments and the Decision Engine page (per-segment Eligibility Rules, Scoring Model, Decision Bands, Credit Limits), the Global Maximum BNPL Limit, the Manual Review missing-weight threshold, the DTI source mode, the AI Advisor&#39;s provider/model/parameters, the Field Catalog&#39;s capability flags, the Preapproved Marketing policy&#39;s enable flag, and the Integration Simulator&#39;s per-system state and mock payload values.</p>
+<p><strong>What is simulated vs. production-ready.</strong> Everything is simulated. There is no backend, no database, no real PACI/CINET/Mobile ID connection, and (by default) no real AI model call. The &quot;AI Manual Review Advisor&quot; ships with a deterministic, rule-based <strong>Simulated</strong> provider that requires no API key; a real <strong>Anthropic</strong> provider exists in code but calls its API directly from the browser (no proxy), which is explicitly flagged in the UI as acceptable for local experimentation only.</p>
+<hr>
+<h2>PART A – Business Requirements Document (BRD)</h2>
+<h3>A.1 Business Problem</h3>
+<p>A BNPL provider needs a way to define and validate credit-decisioning policy — who qualifies, how they&#39;re scored, what tier and credit limit they receive — across multiple customer segments (e.g. students vs. salaried adults), without engineering involvement for every policy tweak, and to demonstrate that policy end-to-end before it&#39;s wired to production identity/bureau systems.</p>
+<h3>A.2 Business Goals</h3>
+<ol>
+<li>Represent an arbitrary number of customer <strong>Segments</strong> as data, not code — adding, renaming, or retiring a segment must never require a deployment.</li>
+<li>Separate <strong>eligibility</strong> (binary pass/fail gate) from <strong>scoring</strong> (weighted 0–1 score) from <strong>decisioning</strong> (score → outcome/tier) from <strong>credit limits</strong> (tier → KWD amount) — four distinct, independently-editable responsibilities.</li>
+<li>Never silently fabricate a value the business doesn&#39;t actually have (a missing CINET score is never treated as zero; a missing residency start date is never inferred from the expiry date).</li>
+<li>Route genuinely ambiguous cases to <strong>Manual Review</strong>, optionally assisted by an <strong>advisory-only</strong> AI recommendation that a human must explicitly confirm or override.</li>
+<li>Keep a full, explainable audit trail for every decision: what data was seen, which gates passed/failed/were skipped/were unavailable, every scoring factor&#39;s contribution, which band matched, and how the final credit limit was computed.</li>
+<li>Enforce a hard ceiling (Global Maximum BNPL Limit) that no segment, tier, or AI recommendation can ever exceed.</li>
+</ol>
+<h3>A.3 In Scope</h3>
+<ul>
+<li>Configurable Segments, Routing (age-range mode), Eligibility Rules, Scoring Models, Decision Bands, Credit Limit Rules, Global Settings.</li>
+<li>A Customer Playground to run synthetic customers through the live engine.</li>
+<li>An advisory AI layer for Manual Review cases only, with mandatory human confirmation.</li>
+<li>A Preapproved Marketing List that can float a matched customer&#39;s decision to the lowest configured Approve tier (never bypassing eligibility).</li>
+<li>Decision History, a summary Dashboard, and Configuration Versioning (Draft/In Review/Active/Retired).</li>
+<li>An Integration Simulator standing in for PACI, CINET, and Mobile ID.</li>
+</ul>
+<h3>A.4 Out of Scope (current implementation)</h3>
+<ul>
+<li>Any real backend, database, authentication, or multi-user concurrency.</li>
+<li>Any real connection to PACI, CINET, Mobile ID, or a real AI provider account (a real-provider code path exists but is not a production integration — see §16 and Appendix 2).</li>
+<li>An &quot;Advanced&quot; (non-age-range) routing mode — the field exists in the data model but no advanced rule engine is implemented.</li>
+<li>Any autonomous AI final-decision mode — the AI Advisor is contractually advisory-only.</li>
+</ul>
+<h3>A.5 Success Criteria</h3>
+<ul>
+<li>An administrator can add a brand-new segment (e.g. &quot;School Student&quot;, ages 15–17) and immediately see it appear as a fully independent Decision Engine tab and Customer Playground routing target, with zero code change.</li>
+<li>Every decision, regardless of outcome, can be fully explained from data already captured in the decision record — no external lookup is ever required to understand why a decision came out the way it did.</li>
+</ul>
+<hr>
+<h2>PART B – Functional Specification</h2>
+<h3>B.1 Navigation / Modules (current, exact)</h3>
+<p>Sidebar is split into two sections. Routes are React Router paths; component files are under <code>src/pages/</code>.</p>
+<p><strong>Primary section (&quot;Playground&quot;):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Page</th>
+<th>Route</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Dashboard</td>
+<td><code>/</code></td>
+<td>Aggregate KPIs and charts over all locally-stored decisions.</td>
+</tr>
+<tr>
+<td>Customer Playground</td>
+<td><code>/playground</code></td>
+<td>Wizard to build/select a synthetic customer and run the live decision engine.</td>
+</tr>
+<tr>
+<td>Segments</td>
+<td><code>/segments</code></td>
+<td>Manage the dynamic list of customer segments (add/edit/clone/activate/deactivate/delete) and their age-range routing.</td>
+</tr>
+<tr>
+<td>Decision Engine</td>
+<td><code>/decision-engine</code></td>
+<td>Consolidated, per-segment configuration of Eligibility Rules, Scoring Model, Decision Bands, and Credit Limits, plus the one global Global Maximum BNPL Limit field.</td>
+</tr>
+</tbody></table>
+<p><strong>&quot;Advanced Configuration&quot; section:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Page</th>
+<th>Route</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Preapproved Marketing List</td>
+<td><code>/preapproved-marketing</code></td>
+<td>Upload/manage a list of pre-registered customers who receive a decision floor.</td>
+</tr>
+<tr>
+<td>Customer Data Fields</td>
+<td><code>/customer-fields</code></td>
+<td>Field Catalog — every field&#39;s type, source, and routing/hard-gate/scoring/AI-exclusion capability flags.</td>
+</tr>
+<tr>
+<td>Integration Simulator</td>
+<td><code>/integrations</code></td>
+<td>Simulate PACI / CINET / Mobile ID as ONLINE / TIMEOUT / ERROR and edit their mock payloads.</td>
+</tr>
+<tr>
+<td>Configuration Versions</td>
+<td><code>/config-versions</code></td>
+<td>Draft/Activate/Retire/Clone/Export/Import/Compare full configuration snapshots.</td>
+</tr>
+<tr>
+<td>Decision History</td>
+<td><code>/decision-history</code></td>
+<td>Every decision ever run in this browser, most recent first, exportable.</td>
+</tr>
+<tr>
+<td>Settings</td>
+<td><code>/settings</code></td>
+<td>Manual Review threshold, DTI source mode, AI Advisor configuration, demo reset.</td>
+</tr>
+</tbody></table>
+<p><strong>Legacy routes (still functional, no longer in the sidebar — superseded by <code>/decision-engine</code>):</strong> <code>/scoring-inputs</code>, <code>/hard-gates</code>, <code>/decision-bands</code>, <code>/credit-limit-rules</code>. These are single-segment-tabbed predecessors of the consolidated Decision Engine page; their editing logic is still live and some of their components (<code>BandsEditor</code>, <code>CategoriesEditor</code> from <code>ScoringInputsPage.tsx</code>) are directly re-used by the current Decision Engine page.</p>
+<p>There is also a non-navigable results view: <code>/result/:id</code> (a specific decision&#39;s full trace, reached from Playground/History, never a sidebar link).</p>
+<h3>B.2 Dynamic Segments</h3>
+<p>A <strong>Segment</strong> is the sole unit that ties together age-range routing, an Eligibility Rule scope, one Scoring Model, one set of Decision Bands, and one Credit Limit Rule. All of these are joined by the segment&#39;s <strong>id</strong>, never by its display name.</p>
+<p><strong>Segment fields (current, exact — <code>Segment</code> interface):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>string</code></td>
+<td>Stable, unique, never reused. Every scoring model / decision-band set / credit-limit rule is keyed by this same string.</td>
+</tr>
+<tr>
+<td><code>code</code></td>
+<td><code>string</code></td>
+<td>Short human-chosen slug, informational only — never a join key.</td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td><code>string</code></td>
+<td>Display name — free to rename without affecting any linked configuration.</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td><code>string?</code></td>
+<td>Free text.</td>
+</tr>
+<tr>
+<td><code>product</code></td>
+<td><code>string</code></td>
+<td>Product label shown in the UI (e.g. &quot;Student BNPL&quot;).</td>
+</tr>
+<tr>
+<td><code>active</code></td>
+<td><code>boolean</code></td>
+<td>When <code>false</code>: never routed to (see §B.3), hidden from the Decision Engine page&#39;s default tab list (an admin can still reveal it via &quot;Show Inactive Segments&quot;), but its entire configuration and all historical decisions are preserved.</td>
+</tr>
+<tr>
+<td><code>priority</code></td>
+<td><code>number</code></td>
+<td>Ascending evaluation order for routing; also the default display order everywhere.</td>
+</tr>
+<tr>
+<td><code>routingMode</code></td>
+<td><code>&#39;AGE_RANGE&#39; | &#39;ADVANCED&#39;</code></td>
+<td>Only <code>AGE_RANGE</code> has an implementing engine today (see §A.4, §B.3).</td>
+</tr>
+<tr>
+<td><code>ageMin</code></td>
+<td><code>number?</code></td>
+<td>Inclusive.</td>
+</tr>
+<tr>
+<td><code>ageMax</code></td>
+<td><code>number?</code></td>
+<td>Inclusive; <code>undefined</code> = open-ended (no upper bound).</td>
+</tr>
+<tr>
+<td><code>creditAllowed</code></td>
+<td><code>boolean</code></td>
+<td>If <code>false</code> (or <code>scoringModelId</code> is null), this segment never produces a credit line — decisions for it resolve to <code>APPROVE</code>/<code>MANUAL_REVIEW</code> with <code>creditLimit: 0</code> and no <code>creditLimitCalculation</code>, driven only by Eligibility Rules.</td>
+</tr>
+<tr>
+<td><code>scoringModelId</code></td>
+<td><code>string | null</code></td>
+<td>Join key into <code>scoringModels</code>, <code>decisionBands</code>, and <code>creditLimitRules</code> — by convention equal to <code>id</code> for every segment created via the current UI.</td>
+</tr>
+<tr>
+<td><code>createdAt</code> / <code>updatedAt</code></td>
+<td><code>string</code> (ISO)</td>
+<td>Audit timestamps on the segment record itself.</td>
+</tr>
+</tbody></table>
+<p><strong>Segment lifecycle:</strong></p>
+<pre class="mermaid">stateDiagram-v2
+  [*] --> Active: Add Segment (Default Template / Empty / Clone)
+  Active --> Inactive: Deactivate
+  Inactive --> Active: Activate
+  Active --> [*]: Delete (only if unused)
+  Inactive --> [*]: Delete (only if unused)
+  Active --> Blocked: Delete attempted, but Decision History references this segment
+  Inactive --> Blocked: Delete attempted, but Decision History references this segment
+  Blocked --> Active: (must Deactivate instead — delete refused)
+</pre>
+<ul>
+<li><strong>Adding a segment</strong> (<code>createSegment</code> in <code>engine/segmentEngine.ts</code>) allocates a new <code>id</code> (<code>seg_&lt;uuid&gt;</code>), and — if <code>creditAllowed</code> — initializes a full Decision Engine package under that same id: a <code>ScoringModel</code> (empty <code>inputs: []</code> for both &quot;Default Template&quot; and &quot;Empty Configuration&quot;; cloned <code>inputs</code> for &quot;Clone Existing Segment&quot;), <code>DecisionBandDef[]</code> (the standard 5-band structure for &quot;Default Template&quot; and clones, or <code>[]</code> for &quot;Empty Configuration&quot;), and a <code>SegmentCreditLimitRule</code> (<code>segmentMaximumKwd</code> from the wizard&#39;s own field, <code>tiers: {}</code> unless cloned). The new segment <strong>immediately</strong> appears as a Decision Engine tab and a Playground routing target — no code change, no page reload beyond React&#39;s own state refresh.</li>
+<li><strong>Editing a segment&#39;s age range</strong> only ever patches that segment&#39;s own <code>ageMin</code>/<code>ageMax</code>/other fields — its Scoring Model, Decision Bands, and Credit Limit Rule (all keyed by <code>scoringModelId</code>, untouched by the edit) are never reset or rebuilt.</li>
+<li><strong>Renaming</strong> only changes <code>name</code> — <code>id</code>/<code>scoringModelId</code> are immutable once created, so nothing else can break.</li>
+<li><strong>Deactivating</strong> sets <code>active: false</code>. The storage-layer routing-rule generator (<code>buildRoutingRulesFromSegments</code>) skips inactive segments entirely, so no <code>RoutingRule</code> is produced for it — new customers can never route there. Its Scoring Model / Decision Bands / Credit Limit Rule and every past <code>DecisionResult</code> referencing it are untouched.</li>
+<li><strong>Deleting</strong> (<code>deleteSegment</code>) is refused (<code>findSegmentDeleteBlockers</code>) if any stored decision&#39;s <code>originalSegmentId</code> or <code>finalSegmentId</code> equals the segment&#39;s id — the UI then shows: <em>&quot;This segment has historical references and cannot be deleted. Deactivate it instead.&quot;</em> If unreferenced, delete proceeds and additionally removes the segment&#39;s <code>ScoringModel</code>/<code>DecisionBandDef[]</code>/<code>SegmentCreditLimitRule</code> <strong>only if no other segment still shares that <code>scoringModelId</code></strong>, and strips the deleted segment&#39;s id out of every Hard Gate&#39;s <code>onlySegments</code> array (a gate scoped only to the deleted segment reverts to &quot;Common&quot; rather than vanishing).</li>
+<li><strong>Cloning</strong> (the &quot;+Clone&quot; row action, or &quot;Create From: Clone Existing Segment&quot; in the wizard) copies the source&#39;s Scoring Model inputs, Decision Bands, Credit Limit Rule tiers, and any Eligibility Rule scoped specifically to that source segment (each cloned gate gets a fresh id and is re-scoped to only the new segment) — but never the source&#39;s <code>id</code>, <code>code</code>, <code>name</code>, or any decision history. The clone is fully independent from that point on.</li>
+</ul>
+<h3>B.3 Segment Routing</h3>
+<p><strong>Current supported mode:</strong> <code>AGE_RANGE</code> only. <code>ADVANCED</code> is a recognized enum value with no implementing logic (see §A.4).</p>
+<p>Routing itself (<code>engine/routingEngine.ts</code>) is generic — it only ever evaluates a <code>RoutingRule[]</code> (a list of <code>{conditions: Condition[], targetSegmentId}</code>, evaluated by <code>evaluateConditions</code>/<code>evaluateOperator</code> from <code>engine/ruleEngine.ts</code>, which support <code>eq, neq, gt, gte, lt, lte, in, not_in, is_null, is_not_null</code>). It contains <strong>no segment-name logic</strong> — routing rules are always regenerated by <code>engine/segmentEngine.ts</code>&#39;s <code>buildRoutingRulesFromSegments</code> directly from each active, <code>AGE_RANGE</code>-mode segment&#39;s <code>ageMin</code>/<code>ageMax</code>, and the storage layer re-applies this generator unconditionally on every load, so a hand-edited <code>routingRules</code> array can never drift out of sync with the segments it describes — Segments is the only place an administrator edits age ranges.</p>
+<p><strong>Rule generation (pseudocode):</strong></p>
+<pre><code>for each segment where active == true and routingMode == &#39;AGE_RANGE&#39;, sorted by priority ascending:
+    conditions = []
+    if segment.ageMin is defined: conditions.push({field:&#39;age&#39;, operator:&#39;gte&#39;, value: segment.ageMin})
+    if segment.ageMax is defined: conditions.push({field:&#39;age&#39;, operator:&#39;lte&#39;, value: segment.ageMax})
+    emit RoutingRule{ id:`route_${segment.id}`, priority: segment.priority, conditions, targetSegmentId: segment.id, isCatchAll: segment.ageMax === undefined }
+</code></pre>
+<p><strong>Evaluation (<code>routeCustomer</code>, first-match wins):</strong></p>
+<pre><code>rules = enabled routingRules sorted by priority ascending
+for rule in rules:
+    if evaluateConditions(rule.conditions, customer):   // AND across all conditions; empty list always matches
+        return rule.targetSegmentId
+// Fallback — must never resolve to an inactive segment:
+return (last ACTIVE segment in segments[]).id, or &#39;&#39; if none
+</code></pre>
+<p><strong>Validation (<code>validateSegmentRouting</code>, shown as a banner on the Segments page and folded into each segment&#39;s Config Status):</strong></p>
+<ul>
+<li><code>ageMin &lt;= ageMax</code> per segment.</li>
+<li><strong>No overlap</strong> between any two active <code>AGE_RANGE</code> segments&#39; ranges (open-ended ranges are treated as extending to <code>+∞</code> for this check) — intentional priority-based overlap is <strong>not</strong> supported in the current implementation.</li>
+<li><strong>No gap</strong>: consecutive segments (sorted by <code>ageMin</code>) must have <code>nextSegment.ageMin &lt;= previousSegment.ageMax + 1</code>, else a warning names the uncovered age span.</li>
+</ul>
+<h3>B.4 Decision Engine Configuration (consolidated page)</h3>
+<p><code>/decision-engine</code> renders one tab per <strong>visible</strong> segment (active, or inactive if &quot;Show Inactive Segments&quot; is checked), each containing exactly four numbered sections, always operating against that segment&#39;s own <code>scoringModelId</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>1. Eligibility Rules</strong></td>
+<td>Determines <strong>whether</strong> the customer may proceed at all — a pass/fail (or indeterminate/not-applicable) gate. Never touches score or credit amount.</td>
+</tr>
+<tr>
+<td><strong>2. Scoring Model</strong></td>
+<td>Calculates a single normalized (0–1) weighted score from the customer&#39;s available data. Never makes an approve/reject decision itself.</td>
+</tr>
+<tr>
+<td><strong>3. Decision Bands</strong></td>
+<td>Converts the final score into an <strong>Outcome</strong> (<code>APPROVE</code>/<code>MANUAL_REVIEW</code>/<code>REJECT</code>) and, only for <code>APPROVE</code>, a <strong>Tier</strong> name. Never carries a monetary amount.</td>
+</tr>
+<tr>
+<td><strong>4. Credit Limits</strong></td>
+<td>Converts <strong>Segment + Tier</strong> into a KWD amount, capped by the Segment Maximum and the one Global Maximum. The only place a monetary figure is ever configured.</td>
+</tr>
+</tbody></table>
+<p>The page maintains one in-memory <strong>draft</strong> of the whole configuration; edits are staged (an &quot;Unsaved Changes&quot; banner appears) and committed atomically via &quot;Save Changes&quot; — switching segment tabs with unsaved changes prompts &quot;Save &amp; Switch&quot; / &quot;Discard &amp; Switch&quot; / &quot;Cancel&quot;. Above the tabs sits exactly one Global Policy card (Global Maximum BNPL Limit) — never repeated per segment. Each segment tab also shows a compact &quot;How This Segment Works&quot; summary (counts of enabled Eligibility Rules, Scoring Factors, Total Weight, number of Decision Bands, Segment Maximum Credit Limit) and a <strong>Config Status</strong> badge (<code>READY</code> / <code>INCOMPLETE</code> / <code>INVALID</code> — see §D.4) next to its own tab label.</p>
+<hr>
+<h3>B.5 Eligibility Rules / Hard Gates</h3>
+<p><strong><code>HardGateRule</code> fields (current, exact):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>string</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td><code>string</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>enabled</code></td>
+<td><code>boolean</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>priority</code></td>
+<td><code>number</code></td>
+<td>Evaluation order, ascending.</td>
+</tr>
+<tr>
+<td><code>input</code></td>
+<td><code>string</code></td>
+<td>Customer field key.</td>
+</tr>
+<tr>
+<td><code>operator</code></td>
+<td><code>ComparisonOperator</code></td>
+<td><code>eq, neq, gt, gte, lt, lte, in, not_in, is_null, is_not_null</code>.</td>
+</tr>
+<tr>
+<td><code>value</code></td>
+<td><code>unknown?</code></td>
+<td>Comparison operand (unused for <code>is_null</code>/<code>is_not_null</code>).</td>
+</tr>
+<tr>
+<td><code>reasonCode</code></td>
+<td><code>string</code></td>
+<td>Emitted when the gate <strong>fails</strong>.</td>
+</tr>
+<tr>
+<td><code>onlySegments</code></td>
+<td><code>string[]?</code></td>
+<td>Empty/absent = <strong>Common</strong> (applies to every segment). Non-empty = applies <strong>only</strong> to those segment ids — filtered out entirely (never evaluated, never shown) for every other segment.</td>
+</tr>
+<tr>
+<td><code>dataUnavailableReasonCode</code></td>
+<td><code>string?</code></td>
+<td>Emitted when the gate&#39;s input is <strong>unavailable</strong>. Optional — if unset, the engine falls back to the constant <code>DATA_UNAVAILABLE</code> (<code>DEFAULT_DATA_UNAVAILABLE_REASON_CODE</code> in <code>engine/creditLimitEngine.ts</code>). An empty value here is explicitly <strong>not</strong> a validation error.</td>
+</tr>
+<tr>
+<td><code>skipConditions</code></td>
+<td><code>Condition[]?</code></td>
+<td>When <strong>all</strong> match the customer, the gate is never evaluated at all.</td>
+</tr>
+<tr>
+<td><code>skipDescription</code></td>
+<td><code>string?</code></td>
+<td>Shown in the audit trail when skipped.</td>
+</tr>
+</tbody></table>
+<p><strong>Result states and their effect on the decision flow:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Result</th>
+<th>Meaning</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>PASS</code></td>
+<td>Condition evaluated true (or gate not applicable to this segment at all — filtered out silently, not shown).</td>
+<td>Continue.</td>
+</tr>
+<tr>
+<td><code>FAIL</code></td>
+<td>Condition evaluated false, input was present.</td>
+<td>Immediate <code>REJECT</code> — no scoring is ever run. Multiple failed gates all contribute their reason codes.</td>
+</tr>
+<tr>
+<td><code>UNAVAILABLE</code> / indeterminate</td>
+<td>Input was <code>null</code>/<code>undefined</code>/<code>&#39;&#39;</code> (and operator isn&#39;t <code>is_null</code>/<code>is_not_null</code>).</td>
+<td>Never counted as pass or fail; forces the case to <code>MANUAL_REVIEW</code> once scoring completes (see §B.6).</td>
+</tr>
+<tr>
+<td><code>NOT APPLICABLE</code></td>
+<td>The gate&#39;s own <code>skipConditions</code> matched the customer.</td>
+<td>Never evaluated at all — reported distinctly from <code>PASS</code>, never shown as &quot;Passed&quot; when it was in fact never checked.</td>
+</tr>
+</tbody></table>
+<p><strong>Currently configured default gates</strong> (all seeded in <code>data/defaultConfig.ts</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Gate</th>
+<th>Priority</th>
+<th>Scope</th>
+<th>Condition</th>
+<th>Fail Reason</th>
+<th>Unavailable Reason</th>
+<th>Special behavior</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Minimum Age</td>
+<td>10</td>
+<td>Common</td>
+<td><code>age &gt;= 18</code></td>
+<td><code>UNDER_MINIMUM_AGE</code></td>
+<td><code>AGE_DATA_UNAVAILABLE</code></td>
+<td>Evaluated <strong>twice</strong>: once as a dedicated pre-routing prerequisite (an ineligible-age customer never reaches routing/scoring at all — immediate <code>REJECT</code>, empty segment), and again as an ordinary gate inside the segment&#39;s own gate list (since it carries no <code>onlySegments</code>, i.e. Common).</td>
+</tr>
+<tr>
+<td>Student Nationality</td>
+<td>20</td>
+<td>Student only (<code>onlySegments: [&#39;student&#39;]</code>)</td>
+<td><code>nationality == &#39;KW&#39;</code></td>
+<td><code>STUDENT_NATIONALITY_NOT_ELIGIBLE</code></td>
+<td><code>STUDENT_NATIONALITY_DATA_UNAVAILABLE</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Current Delinquency</td>
+<td>30</td>
+<td>Common</td>
+<td><code>current_delinquency == false</code></td>
+<td><code>CURRENT_DELINQUENCY_DETECTED</code></td>
+<td><code>CINET_DELINQUENCY_DATA_UNAVAILABLE</code></td>
+<td><code>current_delinquency</code> is itself a derived field (see §B.20).</td>
+</tr>
+<tr>
+<td>Civil ID Status</td>
+<td>40</td>
+<td>Common</td>
+<td><code>civil_id_status == &#39;VALID&#39;</code></td>
+<td><code>INVALID_CIVIL_ID</code></td>
+<td><code>CIVIL_ID_STATUS_DATA_UNAVAILABLE</code></td>
+<td><strong>Skipped (Not Applicable) whenever <code>nationality == &#39;KW&#39;</code></strong> — Civil ID Status is not an eligibility condition for Kuwaiti nationals, regardless of segment.</td>
+</tr>
+</tbody></table>
+<h3>B.6 Scoring Model</h3>
+<p><strong>Normalization methods implemented (<code>engine/normalization.ts</code>):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Formula</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>linear</code></td>
+<td><code>clamp01((value − min) / (max − min))</code></td>
+<td>Higher raw value → higher score.</td>
+</tr>
+<tr>
+<td><code>linear_inverted</code></td>
+<td><code>clamp01(1 − (value − min) / (max − min))</code></td>
+<td>Higher raw value → <strong>lower</strong> score (used for Debt-to-Income).</td>
+</tr>
+<tr>
+<td><code>banded</code></td>
+<td>First band where <code>band.min &lt;= value &lt; band.max</code> → <code>band.score</code>; below the lowest band&#39;s min → lowest band&#39;s score; at/above the top → highest band&#39;s score.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>categorical</code></td>
+<td><code>categories[String(value)]</code>, or <code>categories[&#39;unknown&#39;]</code> if the exact key is absent, or <code>0</code>.</td>
+<td>Used for Employer Tier, Nationality, Residency Stability.</td>
+</tr>
+<tr>
+<td><code>boolean</code></td>
+<td><code>value ? booleanScores.trueScore : booleanScores.falseScore</code></td>
+<td>Not used by any current default factor.</td>
+</tr>
+</tbody></table>
+<p>All normalized scores and <code>clamp01</code> outputs are clamped to <code>[0, 1]</code>.</p>
+<p><strong>Per-input fields (<code>ScoringInputConfig</code>):</strong> <code>id</code>, <code>field</code> (customer key), <code>displayName</code>, <code>method</code>, <code>weight</code> (0–100, business/administrative percentage), <code>nullDefault</code> (0–1, used only when <code>missingDataBehavior === &#39;use_null_default&#39;</code>), <code>enabled</code>, <code>min</code>/<code>max</code> (linear methods), <code>bands</code> (banded), <code>categories</code> (categorical), <code>booleanScores</code> (boolean), <code>missingDataBehavior</code>.</p>
+<p><strong>Missing-data behaviors:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Behavior</th>
+<th>When raw value is missing</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>use_null_default</code></td>
+<td>Score the factor using its own configured <code>nullDefault</code> (0–1) — contributes normally, neither penalized nor helped beyond that fallback.</td>
+</tr>
+<tr>
+<td><code>exclude_and_reweight</code></td>
+<td>Drop the factor entirely from this one decision; remaining enabled/available factors&#39; weights are proportionally re-normalized back to 100% for this decision only (the stored <code>weight</code> values are never modified).</td>
+</tr>
+<tr>
+<td><code>manual_review</code></td>
+<td>Same math as <code>exclude_and_reweight</code>, <strong>plus</strong> it unconditionally forces the overall outcome to <code>MANUAL_REVIEW</code> regardless of score.</td>
+</tr>
+</tbody></table>
+<p><strong>Re-weighting algorithm (<code>engine/scoringEngine.ts::computeScore</code>):</strong></p>
+<pre><code>enabledInputs = model.inputs where enabled == true
+availableInputs = enabledInputs where NOT (missing AND behavior in {exclude_and_reweight, manual_review})
+excludedInputs = enabledInputs − availableInputs
+totalAvailableWeight = sum(availableInputs.weight)  // falls back to 100 if this is 0
+
+for each input in availableInputs:
+    rawValue = customer[input.field]
+    normalizedScore = normalize(input, rawValue)              // uses nullDefault if input.field missing but behavior == use_null_default
+    effectiveWeight = (input.weight / totalAvailableWeight) * 100
+    contribution = normalizedScore * (effectiveWeight / 100)
+    weightedSum += contribution
+
+finalScore = clamp(0, 1, weightedSum)
+unavailableWeightPct = sum of effectiveWeight for every AVAILABLE input that used a null-default fallback (never counts excluded inputs)
+manualReviewTriggered = true if any excludedInput had missingDataBehavior == &#39;manual_review&#39;
+</code></pre>
+<ul>
+<li><strong>Configured Weight</strong> = the permanent, stored <code>weight</code> on the model — never changes per decision.</li>
+<li><strong>Effective Weight</strong> = the re-normalized weight actually used for <em>this</em> decision (<code>null</code> for an excluded factor).</li>
+<li><strong>Contribution</strong> = <code>normalizedScore × (effectiveWeight / 100)</code>, expressed as a fraction of the final 0–1 score (displayed ×100 as percentage points).</li>
+<li><strong>Final Score</strong> = sum of all included factors&#39; contributions, clamped to <code>[0, 1]</code>.</li>
+<li><strong>Insufficient Verified Data</strong>: if <code>unavailableWeightPct</code> (the sum of effective weight that fell back to a <em>null default</em>, not an <em>excluded</em> factor) exceeds <code>globalSettings.manualReviewMissingWeightThreshold</code> (default <strong>50%</strong>), the outcome is forced to <code>MANUAL_REVIEW</code> with reason code <code>INSUFFICIENT_VERIFIED_DATA</code>.</li>
+</ul>
+<h3>B.7 Default Scoring Configuration (current, exact)</h3>
+<p><strong>Student</strong> (<code>scoringModels.student</code>) — total enabled weight 100%:</p>
+<table>
+<thead>
+<tr>
+<th>Factor</th>
+<th>Field</th>
+<th>Method</th>
+<th>Weight</th>
+<th>Missing-Data Behavior</th>
+<th>Null Default</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Verified Student Allowance</td>
+<td><code>student_allowance</code></td>
+<td>banded: <code>[0,1)→0.0</code>, <code>[1,100)→0.40</code>, <code>[100,150)→0.70</code>, <code>[150,999999)→1.00</code></td>
+<td>40%</td>
+<td>use_null_default</td>
+<td>0.0</td>
+</tr>
+<tr>
+<td>CINET Score</td>
+<td><code>cinet_score</code></td>
+<td>banded: <code>[300,500)→0.20</code>, <code>[500,650)→0.45</code>, <code>[650,750)→0.70</code>, <code>[750,901)→1.00</code></td>
+<td>35%</td>
+<td>exclude_and_reweight</td>
+<td>0.3</td>
+</tr>
+<tr>
+<td>Existing Debt / Credit Exposure</td>
+<td><code>debt_to_income</code></td>
+<td>linear_inverted, min 0 max 1</td>
+<td>25%</td>
+<td>use_null_default</td>
+<td>0.3</td>
+</tr>
+</tbody></table>
+<p>Age, employment tenure, employer tier, salaried monthly income, and residency stability are <strong>deliberately never</strong> Student scoring factors — Age is a pure routing attribute, and Student status is already established by routing itself.</p>
+<p><strong>Young Adult</strong> (<code>scoringModels.young_adult</code>) — total enabled weight 100% (Residency Stability present but disabled):</p>
+<table>
+<thead>
+<tr>
+<th>Factor</th>
+<th>Field</th>
+<th>Method</th>
+<th>Weight</th>
+<th>Missing-Data Behavior</th>
+<th>Null Default</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Monthly Income</td>
+<td><code>monthly_income</code></td>
+<td>banded: <code>[0,300)→0.0</code>, <code>[300,500)→0.2</code>, <code>[500,800)→0.45</code>, <code>[800,1500)→0.65</code>, <code>[1500,2500)→0.85</code>, <code>[2500,99999)→1.0</code></td>
+<td>30%</td>
+<td>use_null_default</td>
+<td>0</td>
+</tr>
+<tr>
+<td>Employment Tenure</td>
+<td><code>employment_tenure_months</code></td>
+<td>linear, min 0 max 60</td>
+<td>25%</td>
+<td>use_null_default</td>
+<td>0.2</td>
+</tr>
+<tr>
+<td>Employer Tier</td>
+<td><code>employer_tier</code></td>
+<td>categorical: <code>government→1.0, large_corp→0.85, sme→0.6, self_employed→0.5, unknown→0.3</code></td>
+<td>20%</td>
+<td>use_null_default</td>
+<td>0.3</td>
+</tr>
+<tr>
+<td>CINET Score</td>
+<td><code>cinet_score</code></td>
+<td>linear, min 300 max 900</td>
+<td>15%</td>
+<td>exclude_and_reweight</td>
+<td>0.3</td>
+</tr>
+<tr>
+<td>Nationality</td>
+<td><code>nationality</code></td>
+<td>categorical: <code>KW→1.00</code>, every other configured nationality code → <code>0.50</code> (each independently editable), <code>unknown→0.5</code></td>
+<td>10%</td>
+<td>use_null_default</td>
+<td>0.5</td>
+</tr>
+<tr>
+<td>Residency Stability</td>
+<td><code>residency_stability_category</code></td>
+<td>categorical (see §B.11)</td>
+<td>10% (<strong>disabled by default</strong>)</td>
+<td>use_null_default</td>
+<td>0.35</td>
+</tr>
+</tbody></table>
+<p>Age is <strong>not</strong> re-scored here (its 10% weight was reassigned to Nationality — it already determined the segment via routing).</p>
+<p><strong>Established Customer</strong> (<code>scoringModels.established</code>) — total enabled weight 100% (Residency Stability present but disabled):</p>
+<table>
+<thead>
+<tr>
+<th>Factor</th>
+<th>Field</th>
+<th>Method</th>
+<th>Weight</th>
+<th>Missing-Data Behavior</th>
+<th>Null Default</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Monthly Income</td>
+<td><code>monthly_income</code></td>
+<td>banded (identical bands to Young Adult)</td>
+<td>20%</td>
+<td>use_null_default</td>
+<td>0</td>
+</tr>
+<tr>
+<td>CINET Score</td>
+<td><code>cinet_score</code></td>
+<td>linear, min 300 max 900</td>
+<td>20%</td>
+<td>exclude_and_reweight</td>
+<td>0.3</td>
+</tr>
+<tr>
+<td>Debt-to-Income</td>
+<td><code>debt_to_income</code></td>
+<td>linear_inverted, min 0 max 1</td>
+<td>25%</td>
+<td>use_null_default</td>
+<td>0.3</td>
+</tr>
+<tr>
+<td>Employment Tenure</td>
+<td><code>employment_tenure_months</code></td>
+<td>linear, min 0 max 120</td>
+<td>15%</td>
+<td>use_null_default</td>
+<td>0.3</td>
+</tr>
+<tr>
+<td>Employer Tier</td>
+<td><code>employer_tier</code></td>
+<td>categorical (identical to Young Adult)</td>
+<td>10%</td>
+<td>use_null_default</td>
+<td>0.3</td>
+</tr>
+<tr>
+<td>Nationality</td>
+<td><code>nationality</code></td>
+<td>categorical (identical to Young Adult)</td>
+<td>10%</td>
+<td>use_null_default</td>
+<td>0.5</td>
+</tr>
+<tr>
+<td>Residency Stability</td>
+<td><code>residency_stability_category</code></td>
+<td>categorical</td>
+<td>10% (<strong>disabled by default</strong>)</td>
+<td>use_null_default</td>
+<td>0.35</td>
+</tr>
+</tbody></table>
+<p><em>(Established&#39;s CINET weight was trimmed from an earlier 30% to 20% specifically to make room for Nationality&#39;s 10% without exceeding 100%.)</em></p>
+<p>Every Nationality categorical map is built at seed time by iterating every configured nationality code (<code>data/nationalities.ts</code>) and defaulting each to 0.50 except <code>KW → 1.00</code> — i.e. every country has its <strong>own independently-editable</strong> category entry from the start, never a single collapsed &quot;non-Kuwaiti&quot; bucket.</p>
+<h3>B.8 Field Catalog (Customer Data Fields)</h3>
+<p>Every field the engine can ever see is one <code>CustomerDataField</code> record:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>key</code></td>
+<td><code>string</code></td>
+<td>Technical key, matches the customer-record property name.</td>
+</tr>
+<tr>
+<td><code>displayName</code></td>
+<td><code>string</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>type</code></td>
+<td><code>&#39;string&#39; | &#39;number&#39; | &#39;boolean&#39; | &#39;date&#39; | &#39;enum&#39;</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td><code>FieldSource</code></td>
+<td>One of <code>Customer Input, PACI / Identity Provider, CINET, Mobile ID, Internal BRDG, Commercial Registry, Derived, Mock Integration</code>.</td>
+</tr>
+<tr>
+<td><code>enabled</code></td>
+<td><code>boolean</code></td>
+<td>Field exists/usable at all.</td>
+</tr>
+<tr>
+<td><code>visibleInPlayground</code></td>
+<td><code>boolean</code></td>
+<td>Shown in the Customer Playground wizard/Review table.</td>
+</tr>
+<tr>
+<td><code>useForRouting</code></td>
+<td><code>boolean</code></td>
+<td>Eligible to be used in a <code>RoutingRule</code> condition.</td>
+</tr>
+<tr>
+<td><code>useAsHardGate</code></td>
+<td><code>boolean</code></td>
+<td>Eligible to be the <code>input</code> of a Hard Gate.</td>
+</tr>
+<tr>
+<td><code>useForScoring</code></td>
+<td><code>boolean</code></td>
+<td>Eligible to be added as a <code>ScoringInputConfig.field</code> (governs only the <strong>admin&#39;s</strong> ability to add it as a <em>new</em> scoring factor via the UI — does not gate the engine itself, which only ever consults <code>ScoringModel.inputs</code>).</td>
+</tr>
+<tr>
+<td><code>required</code></td>
+<td><code>boolean</code></td>
+<td>Cosmetic/administrative flag.</td>
+</tr>
+<tr>
+<td><code>options</code> / <code>optionLabels</code></td>
+<td><code>string[]</code> / <code>Record&lt;string,string&gt;</code></td>
+<td>For <code>enum</code> fields.</td>
+</tr>
+<tr>
+<td><code>restrictedFromScoring</code></td>
+<td><code>boolean?</code></td>
+<td>Legacy/older flag — permanently bars a field from being <em>added</em> as a scoring factor via the UI (currently only Gender).</td>
+</tr>
+<tr>
+<td><code>aiExcluded</code></td>
+<td><code>boolean?</code></td>
+<td>The field&#39;s value is always stripped from the AI Manual Review Advisor&#39;s decision package, <strong>regardless of whether the deterministic engine itself already uses it</strong> (e.g. Nationality: scored by the deterministic engine, still excluded from AI context). Currently set on <code>nationality</code>, <code>gender</code>, <code>civil_status</code>, <code>address_area</code>, <code>address_governorate</code>.</td>
+</tr>
+<tr>
+<td><code>usageLabel</code></td>
+<td><code>string?</code></td>
+<td>Cosmetic summary shown in the catalog UI.</td>
+</tr>
+</tbody></table>
+<p><strong>Derived fields</strong> (source <code>&#39;Derived&#39;</code>, never directly editable by the customer):</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Derived from</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>age</code></td>
+<td><code>date_of_birth</code></td>
+<td>Computed on every wizard change of Date of Birth.</td>
+</tr>
+<tr>
+<td><code>residency_duration_years</code></td>
+<td><code>residency_start_date</code> only</td>
+<td><code>null</code> if the start date is unavailable — <strong>never</strong> inferred from the expiry date.</td>
+</tr>
+<tr>
+<td><code>residency_remaining_months</code></td>
+<td><code>residency_expiry_date</code> only</td>
+<td><code>null</code> if unavailable.</td>
+</tr>
+<tr>
+<td><code>residency_stability_category</code></td>
+<td><code>residency_status</code> + <code>residency_duration_years</code></td>
+<td><code>CITIZEN → citizen_or_permanent</code>; else bucketed by duration (<code>≥10y, 5–10y, 3–5y, &lt;3y</code>); <code>unspecified</code> if duration is <code>null</code>. Never influenced by nationality.</td>
+</tr>
+<tr>
+<td><code>debt_to_income</code></td>
+<td><code>monthly_debt_obligations ÷ monthly_income</code></td>
+<td>See §B.21.</td>
+</tr>
+<tr>
+<td><code>current_delinquency</code></td>
+<td>CINET overdue amount / open-account overdue-balance / outstanding-payments / DPD</td>
+<td>See §B.20.</td>
+</tr>
+</tbody></table>
+<h3>B.9 Decision Bands</h3>
+<p><code>DecisionBandDef { id, min, max, outcome: &#39;APPROVE&#39;|&#39;MANUAL_REVIEW&#39;|&#39;REJECT&#39;, tier?: string }</code> — <strong>never</strong> a monetary field. Each segment owns an independent copy (editing one segment&#39;s bands never touches another&#39;s).</p>
+<p><strong>Matching (<code>matchDecisionBand</code>):</strong> sort bands by <code>min</code> ascending; find the first band where <code>score &gt;= min &amp;&amp; score &lt; max</code> (min-inclusive, max-exclusive); if the score is at or above the very top band&#39;s <code>max</code> (i.e. <code>score === 1.0</code>), it belongs to that top band (its internal <code>max</code> is stored as <code>1.01</code> specifically to make this edge case min-inclusive/max-exclusive without a special case in the matcher).</p>
+<p><strong>Validation (<code>validateBandCoverage</code> + <code>validateBandTiers</code>):</strong> bands must cover exactly <code>[0, 1]</code> with <strong>no gap</strong> before the first band&#39;s min or after the last band&#39;s max, <strong>no overlap</strong> or gap between any two consecutive bands, every band&#39;s <code>min &lt; max</code>; <code>REJECT</code>/<code>MANUAL_REVIEW</code> bands must <strong>not</strong> carry a <code>tier</code>; <code>APPROVE</code> bands <strong>must</strong> carry one.</p>
+<p><strong>Current default bands</strong> — identical structure seeded independently for every segment (<code>bandsFor()</code> in <code>data/defaultConfig.ts</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Score Range</th>
+<th>Outcome</th>
+<th>Tier</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0.00 – 0.30</td>
+<td>REJECT</td>
+<td>—</td>
+</tr>
+<tr>
+<td>0.30 – 0.45</td>
+<td>MANUAL_REVIEW</td>
+<td>—</td>
+</tr>
+<tr>
+<td>0.45 – 0.60</td>
+<td>APPROVE</td>
+<td>Tier C</td>
+</tr>
+<tr>
+<td>0.60 – 0.75</td>
+<td>APPROVE</td>
+<td>Tier B</td>
+</tr>
+<tr>
+<td>0.75 – 1.00 (inclusive)</td>
+<td>APPROVE</td>
+<td>Tier A</td>
+</tr>
+</tbody></table>
+<h3>B.10 Credit Limit Rules</h3>
+<p><code>SegmentCreditLimitRule { segmentMaximumKwd: number, tiers: Record&lt;string, number&gt; }</code>, one per <code>scoringModelId</code>, plus exactly one global <code>globalSettings.globalMaxBnplLimit</code>.</p>
+<p><strong>Formula (<code>computeCreditLimit</code>):</strong></p>
+<pre><code>finalLimit = MAX(0, MIN( tierCreditLimit ?? ∞, segmentMaximumKwd, globalMaxBnplLimit ))   // over only the candidates that are present
+</code></pre>
+<ul>
+<li><code>REJECT</code> → <code>creditLimit = 0</code>, <code>tier = null</code>, no <code>creditLimitCalculation</code> object at all.</li>
+<li><code>MANUAL_REVIEW</code> → <strong>no automatic final limit</strong> — <code>creditLimitCalculation = null</code>, <code>creditLimit = 0</code>; UI shows &quot;Manual Review Required — No automatic credit limit is assigned until this decision is resolved to Approve.&quot;</li>
+<li><code>APPROVE</code> with a Tier that has <strong>no configured amount</strong> in <code>tiers</code> → this is treated as a <strong>configuration error</strong> (<code>creditLimitCalculation.configError = true</code>, reason code <code>CREDIT_LIMIT_CONFIG_ERROR</code>) rather than silently presenting a bare <code>MIN(segmentMax, globalMax)</code> as if it were a clean approved amount.</li>
+</ul>
+<p><strong>Validation (<code>validateCreditLimitRule</code>):</strong> Tier C ≤ Tier B ≤ Tier A (only where both sides of a comparison are present); every configured amount ≥ 0; <code>segmentMaximumKwd &gt; 0</code>; no tier amount may exceed <code>segmentMaximumKwd</code>; <code>segmentMaximumKwd</code> may not exceed <code>globalMaxBnplLimit</code>; every Tier actually assigned by that segment&#39;s own Decision Bands must have a valid (<strong>&gt; 0</strong>) configured amount — a missing/zero amount for a live tier is flagged as a configuration error, never accepted as an intentional 0 KWD limit.</p>
+<p><strong>Current default values:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Segment</th>
+<th>Segment Maximum</th>
+<th>Tier C</th>
+<th>Tier B</th>
+<th>Tier A</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Student</td>
+<td>100 KWD</td>
+<td>50 KWD</td>
+<td>75 KWD</td>
+<td>100 KWD</td>
+</tr>
+<tr>
+<td>Young Adult</td>
+<td>500 KWD</td>
+<td>150 KWD</td>
+<td>300 KWD</td>
+<td>500 KWD</td>
+</tr>
+<tr>
+<td>Established</td>
+<td>500 KWD</td>
+<td>150 KWD</td>
+<td>300 KWD</td>
+<td>500 KWD</td>
+</tr>
+<tr>
+<td><strong>Global Maximum BNPL Limit</strong></td>
+<td><strong>500 KWD</strong></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody></table>
+<h3>B.11 Missing-Data Logic — Full Reference</h3>
+<table>
+<thead>
+<tr>
+<th>Mechanism</th>
+<th>Configured where</th>
+<th>Triggers when</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>use_null_default</code></td>
+<td>Per scoring input</td>
+<td>Raw field value missing</td>
+<td>Scores with the input&#39;s own <code>nullDefault</code> (0–1).</td>
+</tr>
+<tr>
+<td><code>exclude_and_reweight</code></td>
+<td>Per scoring input</td>
+<td>Raw field value missing</td>
+<td>Drops the factor; remaining available factors&#39; weights re-normalize to 100% for this decision only.</td>
+</tr>
+<tr>
+<td><code>manual_review</code> (scoring)</td>
+<td>Per scoring input</td>
+<td>Raw field value missing</td>
+<td>Same math as exclude_and_reweight, <strong>plus</strong> forces <code>MANUAL_REVIEW</code> regardless of score.</td>
+</tr>
+<tr>
+<td>Hard Gate indeterminate</td>
+<td>Automatic — any gate whose <code>input</code> is missing</td>
+<td>Input is <code>null</code>/<code>undefined</code>/<code>&#39;&#39;</code> and operator isn&#39;t <code>is_null</code>/<code>is_not_null</code></td>
+<td>Never pass/fail; contributes <code>HARD_GATE_DATA_UNAVAILABLE</code> and forces <code>MANUAL_REVIEW</code> once scoring completes.</td>
+</tr>
+<tr>
+<td>Manual Review Missing-Weight Threshold</td>
+<td><code>globalSettings.manualReviewMissingWeightThreshold</code> (Settings page; <strong>default 50%</strong>)</td>
+<td>Sum of effective weight from <strong>use_null_default</strong> fallbacks (not excluded factors) exceeds the threshold</td>
+<td>Forces <code>MANUAL_REVIEW</code>, reason code <code>INSUFFICIENT_VERIFIED_DATA</code>.</td>
+</tr>
+<tr>
+<td>Integration unavailable</td>
+<td>Integration Simulator (<code>TIMEOUT</code>/<code>ERROR</code>)</td>
+<td>Any field owned by that integration is forced to <code>null</code> for every customer, overriding whatever the wizard entered</td>
+<td>Downstream behavior follows whichever of the above mechanisms consumes that field.</td>
+</tr>
+<tr>
+<td>Invalid Scoring Model</td>
+<td>Enabled weights don&#39;t sum to 100%</td>
+<td>Detected at decision time (<code>isModelValid</code>)</td>
+<td>Forces <code>MANUAL_REVIEW</code>, reason code <code>SCORING_MODEL_INVALID</code>, <code>finalScore = 0</code>, no scoring breakdown produced.</td>
+</tr>
+</tbody></table>
+<h3>B.12 Manual Review Flow</h3>
+<p>A case reaches <code>MANUAL_REVIEW</code> for any of these reasons (all mutually independent, any one is sufficient):</p>
+<ol>
+<li>The final score falls inside a segment&#39;s configured <code>MANUAL_REVIEW</code> Decision Band.</li>
+<li>Any <strong>applicable</strong> Hard Gate&#39;s input was unavailable (indeterminate) — never for a <em>failed</em> gate, which always produces <code>REJECT</code> instead.</li>
+<li>Any scoring factor configured <code>manual_review</code> was itself missing (unconditional override, independent of score).</li>
+<li>The <code>INSUFFICIENT_VERIFIED_DATA</code> missing-weight threshold was exceeded.</li>
+<li>The segment&#39;s Scoring Model is invalid (enabled weights ≠ 100%).</li>
+</ol>
+<p><code>MANUAL_REVIEW</code> differs from <code>REJECT</code> in one essential way: <strong>Reject is a confirmed negative determination</strong> (a failed gate, or a score below the Reject band) — final, <code>creditLimit = 0</code>, never advisory. <strong>Manual Review is an indeterminate case</strong> — the deterministic engine explicitly declines to decide, and (optionally) the AI Advisor may propose a recommendation, but only a human reviewer&#39;s confirmation ever becomes actionable.</p>
+<h3>B.13 AI Manual Review Advisor</h3>
+<p><strong>Invocation gate:</strong> <code>shouldInvokeAiAdvisor(decision) = decision.decisionOutcome === &#39;MANUAL_REVIEW&#39; &amp;&amp; !decision.hardGateFailed</code>. Since a confirmed failed Hard Gate can <em>only</em> ever resolve to <code>REJECT</code> in this engine, the second condition is a defensive restatement of an invariant that already holds by construction — the AI is architecturally unreachable for <code>APPROVE</code> or <code>REJECT</code>.</p>
+<p><strong>Provider:</strong> configurable, <code>&#39;simulated&#39;</code> (default) or <code>&#39;anthropic&#39;</code>.</p>
+<ul>
+<li><strong>Simulated</strong> — a deterministic, rule-based stand-in requiring no API key, coded to honor every guardrail below. It inspects the same decision package a real model would receive: any <em>critical</em> unavailable Hard Gate (<code>Current Delinquency</code> or <code>Civil ID Status</code>) → <code>REQUEST_MORE_INFORMATION</code>; else if the score is within 2 points of the top of its Manual Review band with no weak factors and no missing data → <code>APPROVE</code> at the lowest configured tier; else if any data is missing → <code>REQUEST_MORE_INFORMATION</code>; else → <code>REJECT</code>. Every cited factor is read directly from the supplied package.</li>
+<li><strong>Anthropic</strong> — a real call to <code>POST https://api.anthropic.com/v1/messages</code> made <strong>directly from the browser</strong> (<code>anthropic-dangerous-direct-browser-access: true</code>) since there is no backend to proxy through. The API key is entered in Settings and stored in LocalStorage — explicitly flagged in the UI as acceptable for local experimentation only, never a production key.</li>
+</ul>
+<p><strong>Configuration (<code>AiAdvisorConfig</code>, on Settings page):</strong> <code>enabled</code> (bool), <code>provider</code>, <code>model</code> (string, e.g. <code>simulated-v1</code> or a Claude model id), <code>temperature</code> (0–1), <code>maxResponseTokens</code>, <code>timeoutMs</code>, <code>minConfidenceThreshold</code> (<code>LOW|MEDIUM|HIGH</code>), <code>recommendationMode</code> (fixed to <code>&#39;ADVISORY_ONLY&#39;</code> — no autonomous mode exists), and (Anthropic only) <code>apiKey</code>.</p>
+<p><strong>Input package (<code>AiDecisionPackage</code>, built by <code>buildAiDecisionPackage</code>)</strong> — deliberately minimal, no raw customer PII, no protected/demographic field (any <code>CustomerDataField.aiExcluded === true</code> is stripped from <code>scoringBreakdown</code> even if the deterministic engine itself scored it):</p>
+<pre><code class="language-json">{
+  &quot;customerId&quot;: &quot;&lt;decision.id — never the raw civil ID&gt;&quot;,
+  &quot;segment&quot;: &quot;young_adult&quot;,
+  &quot;engineResult&quot;: { &quot;score&quot;: 0.43, &quot;decision&quot;: &quot;MANUAL_REVIEW&quot;, &quot;decisionBand&quot;: &quot;30-45%&quot; },
+  &quot;eligibilityRules&quot;: [ { &quot;rule&quot;: &quot;Civil ID Status&quot;, &quot;result&quot;: &quot;PASS&quot; }, { &quot;rule&quot;: &quot;Current Delinquency&quot;, &quot;result&quot;: &quot;UNAVAILABLE&quot; } ],
+  &quot;scoringBreakdown&quot;: [ { &quot;factor&quot;: &quot;Monthly Income&quot;, &quot;rawValue&quot;: 900, &quot;normalizedScore&quot;: 0.65, &quot;weight&quot;: 20, &quot;contribution&quot;: 13.0, &quot;included&quot;: true } ],
+  &quot;missingData&quot;: [&quot;Current Delinquency&quot;],
+  &quot;creditPolicy&quot;: { &quot;tierLimits&quot;: { &quot;Tier C&quot;: 150, &quot;Tier B&quot;: 300, &quot;Tier A&quot;: 500 }, &quot;segmentMaximum&quot;: 500, &quot;globalMaximum&quot;: 500 },
+  &quot;reasonCodes&quot;: [&quot;HARD_GATE_DATA_UNAVAILABLE&quot;, &quot;...&quot;]
+}
+</code></pre>
+<p><strong>Output schema (<code>AiAdvisorRecommendation</code>, strict):</strong></p>
+<pre><code class="language-json">{
+  &quot;recommendedAction&quot;: &quot;APPROVE | REJECT | REQUEST_MORE_INFORMATION&quot;,
+  &quot;confidence&quot;: &quot;LOW | MEDIUM | HIGH&quot;,
+  &quot;recommendedTier&quot;: &quot;string | null&quot;,
+  &quot;recommendedLimitKwd&quot;: &quot;number | null&quot;,
+  &quot;summary&quot;: &quot;string&quot;,
+  &quot;positiveFactors&quot;: [&quot;string&quot;, &quot;...&quot;],
+  &quot;riskFactors&quot;: [&quot;string&quot;, &quot;...&quot;],
+  &quot;missingInformation&quot;: [&quot;string&quot;, &quot;...&quot;],
+  &quot;reasonCodes&quot;: [&quot;string&quot;, &quot;...&quot;],
+  &quot;recommendedActionReason&quot;: &quot;string&quot;
+}
+</code></pre>
+<p>No other <code>recommendedAction</code> value is ever accepted.</p>
+<p><strong>Guardrails (<code>validateAndClampAiResponse</code>, applied identically to both providers&#39; output):</strong></p>
+<ul>
+<li>Structurally invalid JSON, or an unsupported <code>recommendedAction</code>/<code>confidence</code> enum value → the whole response is rejected outright (fails closed — never patched).</li>
+<li><code>APPROVE</code> without a <code>recommendedTier</code> present in the segment&#39;s own <code>creditPolicy.tierLimits</code> → downgraded to <code>REQUEST_MORE_INFORMATION</code>.</li>
+<li><code>recommendedLimitKwd</code> above <code>MIN(tierLimit, segmentMaximum, globalMaximum)</code> → <strong>clamped down</strong> to that ceiling, and a policy-violation note is recorded (never silently honored).</li>
+<li>A negative <code>recommendedLimitKwd</code> → clamped to 0.</li>
+<li>An <code>APPROVE</code> recommendation whose <code>confidence</code> is below the configured <code>minConfidenceThreshold</code> → downgraded to <code>REQUEST_MORE_INFORMATION</code>.</li>
+</ul>
+<p><strong>Failure handling:</strong> a timeout (<code>AbortController</code>, <code>timeoutMs</code>), network error, invalid JSON, or unsupported value never produces an approval or rejection — the case remains <code>MANUAL_REVIEW</code>, <code>recommendation: null</code>, and the UI shows <strong>&quot;AI Advisor Unavailable — Manual reviewer action required.&quot;</strong> with a Retry button.</p>
+<p><strong>Audit record (<code>AiAdvisorAuditRecord</code>, one immutable row per invocation, LocalStorage key <code>brdgpay.aiAdvisorAudits</code>):</strong> <code>id</code>, <code>decisionId</code>, <code>invokedAt</code>, <code>engineScore</code>, <code>engineManualReviewReason</code>, <code>inputSnapshot</code> (the exact package sent), <code>provider</code>, <code>modelUsed</code>, <code>promptVersion</code> (<code>&quot;v1&quot;</code>), <code>status</code> (<code>OK|TIMEOUT|ERROR|INVALID_RESPONSE|DISABLED|NOT_APPLICABLE</code>), <code>recommendation</code>, <code>policyViolations[]</code>, <code>errorMessage?</code>. Reviewer fields (<code>reviewerUserName</code>, <code>reviewerAction: &#39;ACCEPT&#39;|&#39;OVERRIDE&#39;|&#39;REQUEST_MORE_INFO&#39;</code>, <code>reviewerFinalDecision: {decision, tier, limitKwd}</code>, <code>reviewerOverrideReason</code>, <code>reviewerActionAt</code>) are the <strong>only</strong> fields ever appended after creation — the AI invocation data is never rewritten, and the original <code>DecisionResult</code> is never mutated at all. <strong>Override</strong> additionally requires a non-empty Override Reason before it can be submitted.</p>
+<p><strong>Distinguishing the three layers:</strong> the <strong>deterministic engine result</strong> (<code>DecisionResult.decisionOutcome/tier/creditLimit</code>) never changes once produced; the <strong>AI recommendation</strong> (<code>AiAdvisorAuditRecord.recommendation</code>) is advisory data layered alongside it; the <strong>final human-confirmed result</strong> (<code>AiAdvisorAuditRecord.reviewerFinalDecision</code>) is the only thing a person should act on operationally, and it is always visibly distinct from both of the above in the UI.</p>
+<h3>B.14 Customer Playground</h3>
+<p>Three-step wizard (Identity → Employment &amp; Financial → Review) plus one-click Sample Customers. <code>WizardStepFields</code>/<code>FieldInput</code> render only fields where <code>enabled &amp;&amp; visibleInPlayground</code>, grouped by <code>FieldGroup</code> (<code>identity|employment|cinet|additional|other</code>). Live, read-only, non-editable previews are shown inline: Preapproved Match status, Residency Duration/Remaining/Stability, Current Delinquency, Debt-to-Income. The Review step lists every visible field with its <strong>Source</strong> (<code>Customer Input</code>, <code>PACI / Identity Provider</code>, <code>CINET</code>, <code>Mobile ID</code>, <code>Internal BRDG</code>, <code>Derived</code>) and masks the Civil ID.</p>
+<p><strong>&quot;RUN DECISION ENGINE&quot;</strong> calls <code>resolveCustomerRecord</code> (fills any wizard-blank field owned by an <code>ONLINE</code> integration from its mock payload; forces every field owned by a <code>TIMEOUT</code>/<code>ERROR</code> integration to <code>null</code> regardless of what the wizard has; re-derives residency fields, DTI, Current Delinquency, and CINET status/score availability) and then <code>runDecisionEngine</code>, saves the <code>DecisionResult</code> to Decision History, and navigates to <code>/result/:id</code> — which is where the full trace, the AI Advisor card (Manual Review only), and the What-If Simulator live. There is no separate &quot;what-if&quot; concept inside the Playground itself; it lives entirely on the Result page.</p>
+<h3>B.15 Integration Simulator</h3>
+<p>Three simulated systems, each <code>{id, name, state: &#39;ONLINE&#39;|&#39;TIMEOUT&#39;|&#39;ERROR&#39;, fields: string[], mockData}</code>:</p>
+<table>
+<thead>
+<tr>
+<th>System</th>
+<th>Fields supplied</th>
+<th>What goes <code>null</code> when TIMEOUT/ERROR</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>PACI</td>
+<td><code>date_of_birth, age, civil_id_status, civil_id_expiry_date, residency_status, residency_start_date, residency_expiry_date, nationality, employer_name</code></td>
+<td>All of the above — Age, Civil ID Status (a Hard Gate input), Nationality (a Hard Gate + scoring input), residency dates.</td>
+</tr>
+<tr>
+<td>CINET</td>
+<td><code>cinet_score, cinet_score_cluster, cinet_evaluation_month, total_active_bnpl_accounts, total_monthly_bnpl_payment, total_overdue_bnpl_amount, worst_account_status, max_outstanding_payments_24m, cinet_open_accounts, monthly_debt_obligations</code></td>
+<td>All of the above — cascades into <code>debt_to_income</code> (derived, becomes <code>null</code>) and <code>current_delinquency</code> (derived, becomes <code>null</code>, making its Hard Gate indeterminate).</td>
+</tr>
+<tr>
+<td>Mobile ID</td>
+<td><code>mobile_id_verified</code></td>
+<td>That one field (display-only today; not consumed by any gate/scoring/routing).</td>
+</tr>
+</tbody></table>
+<p>Resolution order (<code>resolveCustomerRecord</code>): integration fill/null-out → derive residency fields → optionally mirror <code>monthly_debt_obligations</code> from CINET&#39;s BNPL payment (per Settings) → derive <code>debt_to_income</code> → derive <code>current_delinquency</code> → resolve CINET score availability from the customer&#39;s own chosen <code>cinet_status</code> (<code>NOT_CHECKED|AVAILABLE|TIMEOUT|ERROR</code>) reconciled against the CINET integration&#39;s own simulated state.</p>
+<h3>B.16 PACI / Identity Data</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Source</th>
+<th>Derived?</th>
+<th>Hard Gate use</th>
+<th>Scoring use</th>
+<th>Routing use</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>date_of_birth</code></td>
+<td>PACI</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>age</code></td>
+<td>Derived (from DOB)</td>
+<td>Yes</td>
+<td>Yes (Minimum Age)</td>
+<td>No (see §B.7)</td>
+<td>Yes (segment age-range)</td>
+</tr>
+<tr>
+<td><code>civil_id_status</code></td>
+<td>PACI</td>
+<td>No</td>
+<td>Yes (skipped for Kuwaiti)</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>civil_id_expiry_date</code></td>
+<td>PACI</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>residency_status</code></td>
+<td>PACI</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>nationality</code></td>
+<td>PACI</td>
+<td>No</td>
+<td>Yes (Student Nationality, Civil ID skip)</td>
+<td>Yes (Young Adult/Established, 10%)</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>employer_name</code></td>
+<td>PACI</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>residency_start_date</code></td>
+<td>PACI</td>
+<td>No</td>
+<td>No</td>
+<td>No (feeds derived Residency Duration/Stability)</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>residency_expiry_date</code></td>
+<td>PACI</td>
+<td>No</td>
+<td>Yes (available/eligible)</td>
+<td>No (feeds derived Residency Remaining)</td>
+<td>No</td>
+</tr>
+</tbody></table>
+<h3>B.17 CINET Data</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Displayed</th>
+<th>Scored</th>
+<th>Hard Gate input</th>
+<th>Technical-only</th>
+<th>Derived</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>cinet_score</code></td>
+<td>Yes</td>
+<td>Yes (all 3 segments, optional/excludable)</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>cinet_score_cluster</code></td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>Yes (informational)</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>cinet_evaluation_month</code></td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>Yes (informational)</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>total_active_bnpl_accounts</code></td>
+<td>Yes</td>
+<td>Yes (currently unused by any default model but flagged scoring-eligible)</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>total_monthly_bnpl_payment</code></td>
+<td>Yes</td>
+<td>Yes (flagged eligible; unused by default models)</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>total_overdue_bnpl_amount</code></td>
+<td>Yes</td>
+<td>Yes (flagged eligible; unused by default models)</td>
+<td>No</td>
+<td>No</td>
+<td>Feeds <code>current_delinquency</code></td>
+</tr>
+<tr>
+<td><code>worst_account_status</code></td>
+<td>Yes</td>
+<td>Yes (flagged eligible; unused by default models)</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>max_outstanding_payments_24m</code></td>
+<td>Yes</td>
+<td>Yes (flagged eligible; unused by default models)</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>cinet_open_accounts</code></td>
+<td>No (technical detail only, Integration Simulator screen)</td>
+<td>No</td>
+<td>No</td>
+<td>Yes</td>
+<td>Feeds <code>current_delinquency</code></td>
+</tr>
+<tr>
+<td><code>monthly_debt_obligations</code></td>
+<td>Yes</td>
+<td>No directly</td>
+<td>No</td>
+<td>No</td>
+<td>Feeds <code>debt_to_income</code>; optionally mirrors <code>total_monthly_bnpl_payment</code> per Settings</td>
+</tr>
+<tr>
+<td><code>current_delinquency</code></td>
+<td>No (CINET Summary card shows it formatted)</td>
+<td>No</td>
+<td>Yes</td>
+<td>No</td>
+<td>Yes — see §B.20</td>
+</tr>
+<tr>
+<td><code>cinet_status</code> (Customer Input, not a CINET-sourced field)</td>
+<td>Yes</td>
+<td>No (governs whether <code>cinet_score</code> is scored at all)</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+</tr>
+</tbody></table>
+<h3>B.18 DTI (Debt-to-Income) Calculation</h3>
+<p><code>utils/dti.ts::computeDebtToIncome</code>: <strong>always derived</strong>, <code>monthly_debt_obligations ÷ monthly_income</code>, rounded to 3 decimals. Returns <code>null</code> (never <code>Infinity</code>/<code>NaN</code>) if obligations are unavailable, or income is unavailable/≤ 0. Never taken as a raw CINET value, never derived from BNPL account count. <code>globalSettings.dtiSourceMode</code> (<code>&#39;separate_obligation&#39;</code> default, or <code>&#39;bnpl_payment&#39;</code>) only controls <strong>where <code>monthly_debt_obligations</code> itself comes from</strong> — a separate mock/editable figure, or mirrored from CINET&#39;s <code>total_monthly_bnpl_payment</code> — never a formula input on its own. <code>debt_to_income</code> is scored via <code>linear_inverted</code> (higher DTI → lower score) in Student and Established.</p>
+<h3>B.19 Dashboard (current, exact)</h3>
+<p><code>useMemo</code> over the full in-memory <code>history: DecisionResult[]</code> (LocalStorage, never paginated/filtered). Current widgets — <strong>no others exist</strong>:</p>
+<ul>
+<li>KPI tiles: Total Simulations, Approval Rate, Manual Review Rate, Reject Rate, Average Score, Average Approved Limit.</li>
+<li><strong>Decisions by Segment</strong> — count grouped by <code>originalSegmentId</code>.</li>
+<li><strong>Tier Distribution</strong> — count grouped by (<code>tier</code> for Approve, else the literal label <code>&quot;Manual Review&quot;</code> or <code>&quot;Reject&quot;</code>).</li>
+<li><strong>Score Distribution</strong> — 10 fixed 10-point buckets (<code>0–10 … 90–100</code>) over <code>finalScore * 100</code>.</li>
+<li><strong>Common Reason Codes</strong> — top 8 most frequent <code>reasonCodes</code> entries across all history.</li>
+</ul>
+<p>No filters, no date range, no AI-specific metrics, no credit-limit distribution, no per-segment average-limit breakdown exist in the current implementation (see §33).</p>
+<h3>B.20 Decision History / Audit</h3>
+<p>One row per stored <code>DecisionResult</code> (see full field list in §G.1): masked Civil ID, Age, Segment, Score, Decision badge, Tier, Limit, Config Version label. Clicking a row navigates to its full <code>/result/:id</code> trace. &quot;Export&quot; downloads that one decision as JSON. &quot;Clear History&quot; wipes the whole list after a confirm.</p>
+<p><code>current_delinquency</code> derivation (<code>utils/cinetDelinquency.ts::deriveCurrentDelinquency</code>): <code>null</code> if <code>total_overdue_bnpl_amount</code> itself is unavailable (never coerced to <code>false</code>); else <code>true</code> if that amount is positive, or if any <code>cinet_open_accounts</code> entry has a positive <code>overdueBalance</code>, <code>paymentsOutstanding</code>, or <code>dpd</code>; else <code>false</code>.</p>
+<h3>B.21 Configuration Versioning</h3>
+<p><code>ConfigStatus = &#39;DRAFT&#39; | &#39;IN_REVIEW&#39; | &#39;ACTIVE&#39; | &#39;RETIRED&#39;</code>. The &quot;IN_REVIEW&quot; status exists in the type but is not currently set by any UI action (no button transitions a config into it) — see §33. Actions available on <code>/config-versions</code>: <strong>Create Draft</strong> (clone the active config as a new Draft), <strong>Clone</strong> any version, <strong>Activate</strong> (the previous Active version is auto-retired), <strong>Retire</strong> the active one, <strong>Export</strong>/<strong>Import</strong> full JSON, and a side-by-side <strong>Compare</strong> (per top-level section: Segments, Routing Rules, Hard Gates, Customer Fields, Scoring Models, Decision Bands, Credit Limit Rules, Global Settings, Integrations — shown as &quot;Identical&quot;/&quot;Different&quot; plus a raw character-count, not a field-level diff). There is exactly one Active configuration at a time; every read (<code>getConfigurations</code>) runs the full migration/normalization chain, so an old saved config is always upgraded in memory to the current shape on load.</p>
+<h3>B.22 Settings</h3>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Manual Review Threshold (%)</td>
+<td><code>globalSettings.manualReviewMissingWeightThreshold</code>, default 50 — see §B.11.</td>
+</tr>
+<tr>
+<td>Debt-to-Income Source</td>
+<td><code>globalSettings.dtiSourceMode</code> — see §B.18.</td>
+</tr>
+<tr>
+<td>AI Manual Review Advisor</td>
+<td>Full <code>AiAdvisorConfig</code> block — see §B.13.</td>
+</tr>
+<tr>
+<td>Demo Data reset</td>
+<td>Wipes configuration + decision history + preapproved list back to seeded defaults.</td>
+</tr>
+</tbody></table>
+<p>There is no separate &quot;Business Settings vs. Advanced/Technical Settings&quot; split in the current UI — all Settings-page fields live on one page (see §33).</p>
+<hr>
+<h2>PART C – Technical Design Document (TDD)</h2>
+<h3>C.1 Stack</h3>
+<p>React 19 + TypeScript, Vite 8 build tooling, React Router 7 (client-side routing only), <code>uuid</code> for id generation, <code>xlsx</code> for spreadsheet import (Preapproved List). No server, no database, no auth. All state lives in the browser&#39;s <code>localStorage</code>.</p>
+<h3>C.2 Persistence — LocalStorage keys</h3>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>brdgpay.configurations</code></td>
+<td><code>Configuration[]</code> — every Draft/In Review/Active/Retired version.</td>
+</tr>
+<tr>
+<td><code>brdgpay.decisionHistory</code></td>
+<td><code>DecisionResult[]</code>, capped at the 500 most recent (<code>unshift</code> + <code>slice(0,500)</code>).</td>
+</tr>
+<tr>
+<td><code>brdgpay.aiAdvisorAudits</code></td>
+<td><code>AiAdvisorAuditRecord[]</code>.</td>
+</tr>
+<tr>
+<td><code>brdgpay.preapprovedEntries</code></td>
+<td><code>PreapprovedEntry[]</code> — deliberately separate from <code>configurations</code>, never exported/imported with it.</td>
+</tr>
+<tr>
+<td><code>brdgpay.preapprovedBatches</code></td>
+<td><code>PreapprovedBatch[]</code>.</td>
+</tr>
+<tr>
+<td><code>brdgpay.integrationOverrides*</code></td>
+<td>Reserved prefix constant; integration state currently lives inside <code>Configuration.integrations</code>.</td>
+</tr>
+</tbody></table>
+<h3>C.3 Migration-on-read pattern</h3>
+<p><code>storage/localStorageService.ts::getConfigurations()</code> reads the raw array, then pipes every element through a fixed, ordered chain of <code>withXyz(config): Configuration</code> pure functions (each a no-op unless its specific &quot;needs migration&quot; condition is met), covering: Preapproved policy backfill, Business-BNPL removal, Global Settings backfill, CINET field-shape refresh, Family Wallet removal, formula-credit-limit removal, Returning-Customer removal, Student redesign, Hard Gate cleanup, Nationality-scoring/Civil-ID-exemption backfill, Decision-Bands/Credit-Limit separation, Credit-Limit-Rules repair (a <strong>narrow</strong> repair: only when a segment&#39;s <code>tiers</code> map is entirely empty — never when an individual tier is merely <code>≤ 0</code>, since that specific state must surface as a live validation error, not be silently healed away), Missing-Data-Behavior backfill, AI Advisor defaults backfill, <strong>Dynamic Segment fields backfill</strong>, and finally an <strong>unconditional</strong> <code>withRoutingRulesFromSegments</code> regeneration (always re-derives <code>routingRules</code> fresh from <code>segments</code>, every load). If the migrated array differs from the raw one, it&#39;s written straight back — so migrations self-heal the stored data over time rather than re-running forever. The exact same chain (order-compatible) is applied to an imported configuration JSON file.</p>
+<h3>C.4 Frontend architecture</h3>
+<ul>
+<li><code>hooks/ConfigContext.tsx</code> — a single React Context wrapping every storage read/write (<code>activeConfig</code>, <code>updateActiveConfig</code>, <code>history</code>, <code>preapprovedEntries</code>, etc.), consumed via <code>useConfigStore()</code>.</li>
+<li><code>engine/*.ts</code> — pure, framework-free functions: <code>routingEngine</code>, <code>ruleEngine</code> (generic condition evaluator), <code>scoringEngine</code>, <code>normalization</code>, <code>creditLimitEngine</code> (also home to cross-cutting validators), <code>segmentEngine</code> (segment lifecycle + routing-rule generation + Config Status), <code>preapprovedEngine</code>, <code>decisionEngine</code> (the top-level orchestrator), <code>aiAdvisorEngine</code>.</li>
+<li><code>pages/*.tsx</code> — one component per route; the four legacy single-concept pages (<code>ScoringInputsPage</code>, <code>HardGatesPage</code>, <code>DecisionBandsPage</code>, <code>CreditLimitRulesPage</code>) remain fully functional and are partially re-used (<code>BandsEditor</code>, <code>CategoriesEditor</code>, shared constants exported from <code>ScoringInputsPage.tsx</code>) by the consolidated <code>DecisionEnginePage.tsx</code>.</li>
+<li><code>components/*</code> — <code>Card</code>, <code>Button</code>, <code>DecisionBadge</code>, <code>ConfigStatusBadge</code>, <code>KpiTile</code>, <code>EmptyState</code> (generic UI primitives), <code>ConditionEditor</code> (generic condition-list editor, reused across Routing/Hard Gates/skip-conditions), <code>ScoreBar</code>, <code>DecisionFlowVisualization</code>, <code>AiAdvisorCard</code>, <code>BarList</code>, <code>wizard/FieldInput</code> + <code>wizard/WizardStepFields</code>.</li>
+</ul>
+<h3>C.5 No hardcoded segment logic</h3>
+<p>An explicit code audit (carried out as part of the Dynamic Segments work) confirmed the runtime engine (<code>engine/*.ts</code>) and every page contain <strong>zero</strong> conditional business logic keyed on the literal strings <code>student</code>/<code>young_adult</code>/<code>established</code> — routing, gate evaluation, scoring, and credit-limit computation are all driven purely by the <code>Configuration</code> object. The only literal-string references to those three ids live inside the LocalStorage migration chain (§C.3), where they are a legitimate, historical, one-time upgrade path for pre-existing saved data — never active decisioning logic.</p>
+<hr>
+<h2>PART D – Configuration Specification</h2>
+<h3>D.1 The <code>Configuration</code> object (top level)</h3>
+<pre><code>Configuration {
+  id, versionLabel, status, createdAt, updatedAt, notes?
+  segments: Segment[]
+  routingRules: RoutingRule[]        // ALWAYS derived from segments — never hand-authored
+  hardGates: HardGateRule[]
+  customerFields: CustomerDataField[]
+  scoringModels: Record&lt;scoringModelId, ScoringModel&gt;
+  decisionBands: Record&lt;scoringModelId, DecisionBandDef[]&gt;
+  creditLimitRules: Record&lt;scoringModelId, SegmentCreditLimitRule&gt;
+  globalSettings: GlobalSettings
+  integrations: IntegrationConfig[]
+  preapprovedMarketing: PreapprovedPolicy
+  aiAdvisor: AiAdvisorConfig
+}
+</code></pre>
+<p>Exactly one configuration has <code>status === &#39;ACTIVE&#39;</code> at a time; that is always what the Decision Engine, Segments page, and Playground read from and write to.</p>
+<h3>D.2 What is Global vs. Segment-scoped</h3>
+<table>
+<thead>
+<tr>
+<th>Global (configured once)</th>
+<th>Segment-scoped (configured per <code>scoringModelId</code>)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>globalSettings.globalMaxBnplLimit</code></td>
+<td>Eligibility Rules that carry <code>onlySegments</code></td>
+</tr>
+<tr>
+<td><code>globalSettings.manualReviewMissingWeightThreshold</code></td>
+<td>Scoring Model (<code>scoringModels[id]</code>)</td>
+</tr>
+<tr>
+<td><code>globalSettings.dtiSourceMode</code></td>
+<td>Decision Bands (<code>decisionBands[id]</code>)</td>
+</tr>
+<tr>
+<td><code>aiAdvisor</code> (entire block)</td>
+<td>Credit Limit Rule (<code>creditLimitRules[id]</code>, including Segment Maximum)</td>
+</tr>
+<tr>
+<td><code>preapprovedMarketing</code> policy</td>
+<td></td>
+</tr>
+<tr>
+<td><code>integrations</code> (3 simulated systems)</td>
+<td></td>
+</tr>
+<tr>
+<td>Common Hard Gates (no <code>onlySegments</code>)</td>
+<td></td>
+</tr>
+</tbody></table>
+<h3>D.3 Validation rules (complete, as implemented)</h3>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Rule</th>
+<th>Enforced by</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Segments/Routing</td>
+<td><code>ageMin &lt;= ageMax</code></td>
+<td><code>validateSegmentRouting</code></td>
+</tr>
+<tr>
+<td>Segments/Routing</td>
+<td>No overlap between two active <code>AGE_RANGE</code> segments</td>
+<td><code>validateSegmentRouting</code></td>
+</tr>
+<tr>
+<td>Segments/Routing</td>
+<td>No gap between consecutive active segments&#39; ranges</td>
+<td><code>validateSegmentRouting</code></td>
+</tr>
+<tr>
+<td>Eligibility Rules</td>
+<td><code>input</code> must be set</td>
+<td><code>validateHardGate</code></td>
+</tr>
+<tr>
+<td>Eligibility Rules</td>
+<td>A comparison <code>value</code> is required unless operator is <code>is_null</code>/<code>is_not_null</code></td>
+<td><code>validateHardGate</code></td>
+</tr>
+<tr>
+<td>Eligibility Rules</td>
+<td><code>reasonCode</code> must be set</td>
+<td><code>validateHardGate</code></td>
+</tr>
+<tr>
+<td>Eligibility Rules</td>
+<td><code>dataUnavailableReasonCode</code> is <strong>optional</strong> — never a validation error</td>
+<td><code>validateHardGate</code> (absence deliberately not checked)</td>
+</tr>
+<tr>
+<td>Scoring Model</td>
+<td>Enabled weights must total exactly 100% (<code>±0.01</code> tolerance)</td>
+<td><code>isModelValid</code>/<code>totalWeight</code></td>
+</tr>
+<tr>
+<td>Decision Bands</td>
+<td>Full <code>[0,1]</code> coverage, no gap, no overlap, <code>min &lt; max</code> per band</td>
+<td><code>validateBandCoverage</code></td>
+</tr>
+<tr>
+<td>Decision Bands</td>
+<td><code>APPROVE</code> bands must have a <code>tier</code>; <code>REJECT</code>/<code>MANUAL_REVIEW</code> bands must not</td>
+<td><code>validateBandTiers</code></td>
+</tr>
+<tr>
+<td>Credit Limits</td>
+<td>Tier C ≤ Tier B ≤ Tier A</td>
+<td><code>validateCreditLimitRule</code></td>
+</tr>
+<tr>
+<td>Credit Limits</td>
+<td>No negative amounts</td>
+<td><code>validateCreditLimitRule</code></td>
+</tr>
+<tr>
+<td>Credit Limits</td>
+<td><code>segmentMaximumKwd &gt; 0</code></td>
+<td><code>validateCreditLimitRule</code></td>
+</tr>
+<tr>
+<td>Credit Limits</td>
+<td>No tier amount may exceed <code>segmentMaximumKwd</code></td>
+<td><code>validateCreditLimitRule</code></td>
+</tr>
+<tr>
+<td>Credit Limits</td>
+<td><code>segmentMaximumKwd &lt;= globalMaxBnplLimit</code></td>
+<td><code>validateCreditLimitRule</code></td>
+</tr>
+<tr>
+<td>Credit Limits</td>
+<td>Every Tier a segment&#39;s own Decision Bands actually assign must have a valid (<code>&gt; 0</code>) configured amount</td>
+<td><code>validateCreditLimitRule</code></td>
+</tr>
+</tbody></table>
+<h3>D.4 Segment Config Status (<code>computeSegmentConfigStatus</code>)</h3>
+<pre><code>if segment has any routing issue or any enabled applicable-gate validation issue → INVALID
+else if segment.creditAllowed == false or scoringModelId == null → READY (nothing further to check)
+else if the Scoring Model has zero inputs, OR Decision Bands are empty, OR every tier amount / the segment maximum is 0 → INCOMPLETE (expected for a freshly created segment — not an error)
+else run full weight/band/credit-limit validation → INVALID if any issue, else READY
+</code></pre>
+<p><code>INVALID</code> never blocks the engine itself from running — the engine already degrades safely on its own (Manual Review, or a surfaced <code>configError</code>); the status only drives the badge shown to an administrator.</p>
+<hr>
+<h2>PART E – UI / Screen Specification</h2>
+<blockquote>
+<p>Design language: a fixed two-tone sidebar (Playground / Advanced Configuration sections) + top bar showing the active configuration&#39;s version label; content area uses <code>Card</code>, <code>data-table</code>, <code>tabs</code>, <code>badge</code>, <code>field-group</code> primitives consistently across every page.</p>
+</blockquote>
+<h3>E.1 Dashboard (<code>/</code>)</h3>
+<p><strong>Purpose:</strong> at-a-glance aggregate view of every stored decision. <strong>Sections:</strong> 4 KPI tiles (Total/Approval/Review/Reject rate) → 2 KPI tiles (Avg Score, Avg Approved Limit) → 4 <code>BarList</code> cards (Decisions by Segment, Tier Distribution, Score Distribution, Common Reason Codes). <strong>Empty state:</strong> &quot;No simulations yet.&quot; <strong>Read-only</strong> — no edits happen here. <strong>Data source:</strong> <code>history</code> from context (derived via <code>useMemo</code>, no persistence writes).</p>
+<h3>E.2 Customer Playground (<code>/playground</code>)</h3>
+<p><strong>Purpose:</strong> build/select a synthetic customer, run the engine. <strong>Sections:</strong> Sample Customer pill buttons → 3-step wizard (Identity / Employment &amp; Financial / Review) → Back/Next/Run buttons. <strong>Fields:</strong> every <code>enabled &amp;&amp; visibleInPlayground</code> <code>CustomerDataField</code>, grouped. <strong>Buttons:</strong> one per sample, Back, Next, &quot;RUN DECISION ENGINE&quot;. <strong>Validation:</strong> none client-side — any combination of inputs, including all-blank, can be run (missing data is handled by the engine itself). <strong>Navigation:</strong> on run, redirects to <code>/result/:id</code>. <strong>State changes:</strong> writes one new <code>DecisionResult</code> to <code>brdgpay.decisionHistory</code>.</p>
+<h3>E.3 Result page (<code>/result/:id</code>, no sidebar link)</h3>
+<p><strong>Purpose:</strong> the single, complete decision trace. <strong>Sections (in order):</strong> header (badge, timestamp, masked civil id) → 4 KPI tiles (Segment/Score/Tier/Limit) → Decision Flow visualization (step chain, includes AI steps for Manual Review) → <strong>AI Manual Review Advisor card</strong> (Manual Review only) → Assessment Type → Preapproved Marketing Status → Customer Profile → CINET Summary → Score Visualization (<code>ScoreBar</code>) → Segment Routing → Eligibility Rules (Hard Gates) table → Scoring Breakdown table → Decision Result Flow (Step 1–7 + Final Credit Limit) → Reason Codes → Human Readable Explanation → What-If Simulator (adjust financial inputs and Preapproved simulation, recalculates live) → back-to-history link. <strong>Data source:</strong> one stored <code>DecisionResult</code> plus the <code>Configuration</code> version it was decided under (falls back to current Active if that version was deleted). <strong>State changes:</strong> the AI Advisor card can create/update one <code>AiAdvisorAuditRecord</code>; nothing else on this page is ever persisted.</p>
+<h3>E.4 Segments (<code>/segments</code>)</h3>
+<p><strong>Purpose:</strong> manage the dynamic segment list. <strong>Sections:</strong> routing-validation banner (if any) → segment table (Segment/Age Range/Product/Status/Priority/Credit Allowed/Segment Maximum/Config Status/Actions) → inline expandable Edit panel → &quot;+ Add Segment&quot; 3-step wizard (Basic Info → Routing → Decision Engine Initialization: Default Template / Empty Configuration / Clone Existing Segment, plus Segment Maximum). <strong>Buttons per row:</strong> Edit, Clone, Activate/Deactivate, Delete. <strong>Validation:</strong> live overlap/gap preview while filling the wizard&#39;s age fields; Delete blocked with an alert if decision history references the segment. <strong>State changes:</strong> <code>createSegment</code>/<code>deleteSegment</code>/direct field patches, all via <code>updateActiveConfig</code>.</p>
+<h3>E.5 Decision Engine (<code>/decision-engine</code>)</h3>
+<p><strong>Purpose:</strong> the single per-segment configuration surface. <strong>Sections:</strong> Unsaved-Changes banner (Discard/Save) → Global Policy card (Global Maximum BNPL Limit, once) → segment tabs (with Config Status badge, &quot;Show Inactive Segments&quot; checkbox) → segment-switch unsaved-changes prompt → &quot;How This Segment Works&quot; summary → 4-step flow indicator → <strong>1. Eligibility Rules</strong> (compact rows: name/condition/enabled/scope badge + &quot;Details&quot; expand for Priority/Reason Code/Applies-To-Segments/Unavailable-Reason/Skip-Condition editor; &quot;+ Add Eligibility Rule&quot;) → <strong>2. Scoring Model</strong> (table: Factor/Method/Weight/Missing-Data Behavior/Enabled + &quot;Details&quot; expand for Field/Method/Weight/Missing-Data-Behavior/Null-Default/Min-Max/Bands-editor/Categories-editor/Boolean-scores; &quot;+ Add Scoring Factor&quot;) → <strong>3. Decision Bands</strong> (<code>ScoreBar</code> + table Min/Max/Decision/Tier/Action; &quot;+ Add Band&quot;) → <strong>4. Credit Limits</strong> (Tier rows + Segment Maximum + a live &quot;How the Final Limit Is Calculated&quot; preview panel with a selectable Preview Tier) → Validation Summary card (per-section ✓/✗, Discard/Save). <strong>Buttons:</strong> dozens of small Add/Remove/Details/Save/Discard actions, all <code>window.confirm</code>-gated for destructive removals. <strong>State changes:</strong> one staged in-memory draft, committed atomically on Save via <code>updateActiveConfig</code>.</p>
+<h3>E.6 Preapproved Marketing List (<code>/preapproved-marketing</code>)</h3>
+<p><strong>Purpose:</strong> manage a separately-persisted list of pre-registered customers who receive a decision floor. <strong>Tabs:</strong> Entries (search/filter/manual add) → Upload/Import (spreadsheet parse + validate + skip/replace duplicate strategy) → Batch History → Matching Simulator (test a civil id/mobile against the live matcher) → Performance (uploaded/matched/approved/hard-gate-rejected counts, by batch). <strong>Locked policy fields:</strong> Matching Priority, Decision Effect, Bypass Hard Gates (No), Bypass Segment (No) — only &quot;Enabled&quot; is editable. <strong>State changes:</strong> its own LocalStorage keys, never the <code>Configuration</code>&#39;s export/import.</p>
+<h3>E.7 Customer Data Fields (<code>/customer-fields</code>)</h3>
+<p><strong>Purpose:</strong> the Field Catalog. <strong>Sections:</strong> group tabs (All/Identity/Employment &amp; Financial/CINET/Other) → one table (Field/Usage/Type/Source/Enabled/Visible/Routing/Hard Gate/Scoring/Required checkboxes). <strong>Editable:</strong> every checkbox column directly toggles the underlying <code>CustomerDataField</code> flag (Routing and Scoring checkboxes disabled when <code>restrictedFromScoring</code> is set).</p>
+<h3>E.8 Integration Simulator (<code>/integrations</code>)</h3>
+<p><strong>Purpose:</strong> simulate PACI/CINET/Mobile ID. <strong>Sections:</strong> one card per integration — state selector (ONLINE/TIMEOUT/ERROR) + a live-status dot, editable mock value per supplied field, and (CINET only) an Open Accounts sub-table (Account No/Status/Payments Outstanding/Outstanding Balance/Overdue Balance/DPD, Add/Remove rows).</p>
+<h3>E.9 Configuration Versions (<code>/config-versions</code>)</h3>
+<p><strong>Purpose:</strong> manage configuration snapshots. <strong>Sections:</strong> version table (Version/Status/Notes/Updated/Actions: Activate|Retire, Clone, Export, Delete-if-not-Active) → &quot;+ Create Draft&quot; / &quot;Import JSON&quot; → Compare panel (pick two versions, per-section Identical/Different).</p>
+<h3>E.10 Decision History (<code>/decision-history</code>)</h3>
+<p><strong>Purpose:</strong> browse every stored decision. <strong>Sections:</strong> one table (ID/Date/Civil ID/Age/Segment/Score/Decision/Tier/Limit/Config/Export) — row click navigates to <code>/result/:id</code>; &quot;Clear History&quot; (confirm-gated).</p>
+<h3>E.11 Settings (<code>/settings</code>)</h3>
+<p><strong>Purpose:</strong> global engine behavior. <strong>Sections:</strong> Manual Review Threshold → Debt-to-Income Source → <strong>AI Manual Review Advisor</strong> (Enable checkbox, Provider, Model, Recommendation Mode [locked], Temperature, Max Response Tokens, AI Timeout, Minimum Confidence Threshold, and — Anthropic only — API Key with an inline security warning) → Demo Data reset (confirm-gated) → About.</p>
+<hr>
+<h2>PART F – Decision Engine Logic</h2>
+<h3>F.1 Full pseudocode (matches <code>engine/decisionEngine.ts::runDecisionEngine</code> exactly)</h3>
+<pre><code>function EvaluateCustomer(config, customer, preapprovedEntries):
+
+    verifiedCivilId = getVerifiedCivilId(customer)          // only counts if civil_id_status == VALID
+    preapprovedMatch = findPreapprovedMatch(verifiedCivilId, customer.mobile_number, preapprovedEntries)
+
+    // --- Prerequisite: Minimum Age, evaluated BEFORE routing exists ---
+    minAgeGate = config.hardGates.find(id == &#39;gate_min_age&#39; &amp;&amp; enabled)
+    if minAgeGate exists:
+        if customer.age is unavailable: treat as PASS (indeterminate → allowed through to routing)
+        elif customer.age fails minAgeGate.operator/value:
+            return REJECT, no segment, no scoring, no credit limit
+            // preapproval can NEVER bypass this
+
+    // --- Segment Routing ---
+    segmentId = RouteCustomer(config, customer)             // first-match over routingRules, else last ACTIVE segment
+    segment = config.segments.find(id == segmentId)
+
+    // --- Eligibility / Hard Gates, scoped to this segment ---
+    gates = config.hardGates
+        .filter(enabled)
+        .filter(onlySegments is empty OR includes segmentId)
+        .sort(by priority)
+    gateResults = []
+    for gate in gates:
+        if gate.skipConditions all match customer:
+            gateResults.push({ applicable: false, passed: true, indeterminate: false })   // &quot;Not Applicable&quot;
+            continue
+        actual = customer[gate.input]
+        if actual is unavailable and operator not in {is_null, is_not_null}:
+            gateResults.push({ applicable: true, indeterminate: true, passed: true, reasonCode: gate.dataUnavailableReasonCode ?? &#39;DATA_UNAVAILABLE&#39; })
+        else:
+            passed = evaluateOperator(gate.operator, actual, gate.value)
+            gateResults.push({ applicable: true, indeterminate: false, passed, reasonCode: passed ? undefined : gate.reasonCode })
+
+    hardGateFailed = any applicable gate with passed == false
+    hardGateIndeterminate = any applicable gate with indeterminate == true
+
+    if hardGateFailed or segment.scoringModelId is null:
+        outcome = hardGateFailed ? REJECT : (hardGateIndeterminate ? MANUAL_REVIEW : APPROVE-with-no-credit-line)
+        apply Preapproved Floor (only ever promotes non-Approve → Approve at lowest tier; never overrides a hard-gate REJECT)
+        return outcome, tier=null, creditLimit computed only if the floor promoted to Approve
+
+    // --- Scoring ---
+    model = config.scoringModels[segment.scoringModelId]
+    if sum(enabled input weights) != 100%:
+        return MANUAL_REVIEW (&#39;SCORING_MODEL_INVALID&#39;), apply Preapproved Floor, no scoring breakdown
+
+    { rows, finalScore, unavailableWeightPct, manualReviewTriggered } = ComputeScore(model, customer)
+
+    missingDataTriggered = unavailableWeightPct &gt; config.globalSettings.manualReviewMissingWeightThreshold
+
+    band = MatchDecisionBand(config.decisionBands[segment.scoringModelId], finalScore)
+    outcome = band.outcome
+    if (missingDataTriggered or manualReviewTriggered or hardGateIndeterminate) and outcome == APPROVE:
+        outcome = MANUAL_REVIEW
+    tier = (outcome == APPROVE) ? band.tier : null       // tier is NEVER set unless the outcome is actually Approve
+
+    // --- Preapproved Marketing Decision Floor (after the band match) ---
+    floorResult = ApplyPreapprovedFloor(preapprovedMatch, hardGatePassed=true, outcome, tier, config.decisionBands[...])
+    finalOutcome = floorResult.decisionOutcome
+    finalTier = floorResult.tier
+    effectiveBand = floorResult.applied ? lowestApproveBand(bands) : band
+
+    // --- Credit Limit ---
+    if finalOutcome == APPROVE:
+        tierLimit = config.creditLimitRules[segment.scoringModelId].tiers[effectiveBand.tier] ?? null
+        segmentMax = config.creditLimitRules[segment.scoringModelId].segmentMaximumKwd
+        globalMax = config.globalSettings.globalMaxBnplLimit
+        finalLimit = MAX(0, MIN(tierLimit ?? ∞, segmentMax, globalMax))
+        configError = (effectiveBand.tier is set) and (tierLimit is null)   // approved tier with no configured amount
+    else:
+        finalLimit = 0, no creditLimitCalculation object at all (MANUAL_REVIEW) or an implicit 0 (REJECT)
+
+    return full DecisionResult { ...everything above, hardGateResults, scoringBreakdown: rows, reasonCodes, explanation }
+</code></pre>
+<h3>F.2 AI Advisor invocation (separate call site, never inside the engine itself)</h3>
+<pre><code>if decision.decisionOutcome == MANUAL_REVIEW and not decision.hardGateFailed and config.aiAdvisor.enabled:
+    // triggered explicitly by a &quot;Run AI Review&quot; button click on the Result page — never automatic
+    package = BuildAiDecisionPackage(decision, config)     // strips aiExcluded fields, no raw PII
+    raw = (provider == &#39;simulated&#39;) ? RunSimulatedAdvisor(package) : await CallAnthropic(package, config.aiAdvisor, timeout)
+    result = ValidateAndClampAiResponse(raw, package)      // fails closed on bad shape; clamps over-limit/negative amounts; downgrades low-confidence Approve
+    persist AiAdvisorAuditRecord (status OK/TIMEOUT/ERROR/INVALID_RESPONSE)
+    // The DecisionResult itself is NEVER touched. A human must Accept / Override / Request More Info
+    // before anything here becomes an operationally final outcome.
+</code></pre>
+<hr>
+<h2>PART G – Data Model</h2>
+<h3>G.1 <code>DecisionResult</code> (the immutable decision record)</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code>, <code>createdAt</code></td>
+<td>string</td>
+<td></td>
+</tr>
+<tr>
+<td><code>configVersionId</code>, <code>configVersionLabel</code></td>
+<td>string</td>
+<td>Which configuration snapshot produced this decision.</td>
+</tr>
+<tr>
+<td><code>customer</code></td>
+<td><code>CustomerRecord</code> (<code>Record&lt;string, unknown&gt;</code>)</td>
+<td>The fully-resolved customer record used for this decision.</td>
+</tr>
+<tr>
+<td><code>originalSegmentId</code>, <code>finalSegmentId</code></td>
+<td>string</td>
+<td>Currently always equal (no segment-changing override path exists today).</td>
+</tr>
+<tr>
+<td><code>scoringModelId</code></td>
+<td>string | null</td>
+<td></td>
+</tr>
+<tr>
+<td><code>hardGateResults</code></td>
+<td><code>HardGateResult[]</code></td>
+<td>See §B.5.</td>
+</tr>
+<tr>
+<td><code>hardGateFailed</code></td>
+<td>boolean</td>
+<td></td>
+</tr>
+<tr>
+<td><code>finalScore</code></td>
+<td>number (0–1)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>decisionOutcome</code>, <code>tier</code>, <code>creditLimit</code></td>
+<td></td>
+<td>The <strong>final</strong> (post-floor) values.</td>
+</tr>
+<tr>
+<td><code>creditLimitCalculation</code></td>
+<td><code>CreditLimitCalculation | null</code></td>
+<td><code>{tierCreditLimit, segmentMaxLimit, globalMaxLimit, finalLimit, configError?, configErrorReason?}</code>.</td>
+</tr>
+<tr>
+<td><code>scoringBreakdown</code></td>
+<td><code>ScoringBreakdownRow[]</code></td>
+<td>See §B.6.</td>
+</tr>
+<tr>
+<td><code>unavailableWeightPct</code></td>
+<td>number</td>
+<td></td>
+</tr>
+<tr>
+<td><code>reasonCodes</code></td>
+<td>string[]</td>
+<td></td>
+</tr>
+<tr>
+<td><code>explanation</code></td>
+<td>string</td>
+<td>Human-readable summary.</td>
+</tr>
+<tr>
+<td><code>originalDecisionOutcome</code>, <code>originalTier</code></td>
+<td></td>
+<td>Pre-Preapproved-Floor values, for audit.</td>
+</tr>
+<tr>
+<td><code>preapprovedMatchStatus</code>, <code>preapprovedEntryId</code>, <code>preapprovedBatchId</code>, <code>preapprovedBatchName</code>, <code>preapprovedOverrideApplied</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>assessmentType</code>, <code>cinetStatus</code>, <code>cinetScore</code>, <code>cinetIncludedInScore</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>configuredScoringWeights</code>, <code>effectiveScoringWeights</code></td>
+<td><code>Record&lt;field, number&gt;</code></td>
+<td></td>
+</tr>
+</tbody></table>
+<h3>G.2 Entity relationships</h3>
+<pre class="mermaid">erDiagram
+  CONFIGURATION ||--o{ SEGMENT : contains
+  CONFIGURATION ||--o{ HARDGATERULE : contains
+  CONFIGURATION ||--o{ CUSTOMERDATAFIELD : contains
+  CONFIGURATION ||--o{ ROUTINGRULE : "derives (never hand-authored)"
+  CONFIGURATION ||--|| GLOBALSETTINGS : has
+  CONFIGURATION ||--|| AIADVISORCONFIG : has
+  SEGMENT ||--o| SCORINGMODEL : "scoringModelId ->"
+  SEGMENT ||--o| DECISIONBANDSET : "scoringModelId ->"
+  SEGMENT ||--o| CREDITLIMITRULE : "scoringModelId ->"
+  SCORINGMODEL ||--o{ SCORINGINPUTCONFIG : contains
+  DECISIONBANDSET ||--o{ DECISIONBANDDEF : contains
+  HARDGATERULE }o--o{ SEGMENT : "onlySegments (optional scope)"
+  DECISIONRESULT }o--|| SEGMENT : "originalSegmentId / finalSegmentId"
+  DECISIONRESULT ||--o| AIADVISORAUDITRECORD : "one per invocation"
+  PREAPPROVEDENTRY }o--|| PREAPPROVEDBATCH : "batchId"
+  DECISIONRESULT }o--o| PREAPPROVEDENTRY : "preapprovedEntryId (match)"
+</pre>
+<h3>G.3 Model reference table</h3>
+<table>
+<thead>
+<tr>
+<th>Entity (code name)</th>
+<th>File</th>
+<th>Key fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Segment</code></td>
+<td><code>models/configuration.ts</code></td>
+<td>id, code, name, active, priority, routingMode, ageMin, ageMax, creditAllowed, scoringModelId</td>
+</tr>
+<tr>
+<td><code>RoutingRule</code></td>
+<td><code>models/configuration.ts</code></td>
+<td>id, priority, conditions, targetSegmentId — always derived, see §B.3</td>
+</tr>
+<tr>
+<td><code>HardGateRule</code></td>
+<td><code>models/configuration.ts</code></td>
+<td>id, input, operator, value, reasonCode, onlySegments, dataUnavailableReasonCode, skipConditions, skipDescription</td>
+</tr>
+<tr>
+<td><code>ScoringInputConfig</code></td>
+<td><code>models/configuration.ts</code></td>
+<td>field, method, weight, nullDefault, missingDataBehavior, bands/categories/booleanScores</td>
+</tr>
+<tr>
+<td><code>ScoringModel</code></td>
+<td><code>models/configuration.ts</code></td>
+<td>id, name, inputs[]</td>
+</tr>
+<tr>
+<td><code>DecisionBandDef</code></td>
+<td><code>models/configuration.ts</code></td>
+<td>min, max, outcome, tier?</td>
+</tr>
+<tr>
+<td><code>SegmentCreditLimitRule</code></td>
+<td><code>models/configuration.ts</code></td>
+<td>segmentMaximumKwd, tiers</td>
+</tr>
+<tr>
+<td><code>GlobalSettings</code></td>
+<td><code>models/configuration.ts</code></td>
+<td>globalMaxBnplLimit, manualReviewMissingWeightThreshold, dtiSourceMode</td>
+</tr>
+<tr>
+<td><code>CustomerDataField</code> (Field Catalog / <code>FieldDefinition</code>)</td>
+<td><code>models/configuration.ts</code></td>
+<td>key, type, source, enabled, visibleInPlayground, useForRouting, useAsHardGate, useForScoring, aiExcluded</td>
+</tr>
+<tr>
+<td><code>IntegrationConfig</code> (<code>IntegrationSimulationConfig</code>)</td>
+<td><code>models/configuration.ts</code></td>
+<td>id, state, fields, mockData</td>
+</tr>
+<tr>
+<td><code>DecisionResult</code> (<code>DecisionRecord</code>)</td>
+<td><code>models/decision.ts</code></td>
+<td>see §G.1</td>
+</tr>
+<tr>
+<td><code>HardGateResult</code> (<code>DecisionFactorResult</code> equivalent for gates)</td>
+<td><code>models/decision.ts</code></td>
+<td>passed, indeterminate, applicable, skipReason, reasonCode</td>
+</tr>
+<tr>
+<td><code>ScoringBreakdownRow</code></td>
+<td><code>models/decision.ts</code></td>
+<td>normalizedScore, weight, effectiveWeight, contribution, excluded, missingDataBehavior</td>
+</tr>
+<tr>
+<td><code>CreditLimitCalculation</code></td>
+<td><code>models/decision.ts</code></td>
+<td>tierCreditLimit, segmentMaxLimit, globalMaxLimit, finalLimit, configError</td>
+</tr>
+<tr>
+<td><code>AiAdvisorConfig</code></td>
+<td><code>models/aiAdvisor.ts</code></td>
+<td>enabled, provider, model, temperature, maxResponseTokens, timeoutMs, minConfidenceThreshold, recommendationMode, apiKey</td>
+</tr>
+<tr>
+<td><code>AiDecisionPackage</code></td>
+<td><code>models/aiAdvisor.ts</code></td>
+<td>customerId, segment, engineResult, eligibilityRules, scoringBreakdown, missingData, creditPolicy, reasonCodes</td>
+</tr>
+<tr>
+<td><code>AiAdvisorRecommendation</code></td>
+<td><code>models/aiAdvisor.ts</code></td>
+<td>recommendedAction, confidence, recommendedTier, recommendedLimitKwd, summary, positiveFactors, riskFactors, missingInformation, reasonCodes, recommendedActionReason</td>
+</tr>
+<tr>
+<td><code>AiAdvisorAuditRecord</code> (<code>AIReviewRecord</code>)</td>
+<td><code>models/aiAdvisor.ts</code></td>
+<td>see §B.13</td>
+</tr>
+<tr>
+<td><code>PreapprovedEntry</code> / <code>PreapprovedBatch</code></td>
+<td><code>models/preapproved.ts</code></td>
+<td>civilId, mobile, batchId, status</td>
+</tr>
+<tr>
+<td><code>Configuration</code> (<code>ConfigurationVersion</code>)</td>
+<td><code>models/configuration.ts</code></td>
+<td>id, versionLabel, status, createdAt/updatedAt — see §D.1</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>PART H – API / Service Contracts</h2>
+<p>This is a single-page, frontend-only application — there is no backend HTTP API. &quot;Services&quot; here means the pure-function/module contracts that stand in for what would otherwise be REST endpoints.</p>
+<h3>H.1 Primary &quot;evaluate decision&quot; contract</h3>
+<pre><code class="language-ts">function runDecisionEngine(
+  config: Configuration,
+  customer: CustomerRecord,          // Record&lt;string, unknown&gt; — already resolved (integration fill applied)
+  preapprovedEntries: PreapprovedEntry[] = []
+): DecisionResult
+</code></pre>
+<p><strong>Request equivalent:</strong> <code>config</code> + a fully-resolved <code>customer</code> record + the current preapproved list. <strong>Response equivalent:</strong> one complete <code>DecisionResult</code> (§G.1) — always returned synchronously, never throws for a business-rule case (every branch, including hard-gate failure and invalid scoring model, returns a fully-formed <code>DecisionResult</code>). <strong>Error behavior:</strong> none defined at this layer — malformed <code>Configuration</code> shapes are expected to have already been normalized by the storage layer before reaching here.</p>
+<h3>H.2 AI Advisor contract</h3>
+<pre><code class="language-ts">async function runAiAdvisor(decision: DecisionResult, config: Configuration): Promise&lt;AiAdvisorAuditRecord&gt;
+</code></pre>
+<p><strong>Behavior:</strong> always resolves (never rejects) — timeouts/errors/invalid responses are captured into the returned record&#39;s <code>status</code>/<code>errorMessage</code>, never thrown to the caller.</p>
+<h3>H.3 Persistence contracts (<code>storage/localStorageService.ts</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>getConfigurations()</code> / <code>saveConfigurations(configs)</code></td>
+<td>Full list read (migrated) / write.</td>
+</tr>
+<tr>
+<td><code>getActiveConfiguration()</code> / <code>getConfigurationById(id)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>upsertConfiguration(config)</code></td>
+<td>Insert or replace by id, re-stamps <code>updatedAt</code>.</td>
+</tr>
+<tr>
+<td><code>activateConfiguration(id)</code> / <code>retireConfiguration(id)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>createDraftFromActive()</code> / <code>cloneConfiguration(id)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>deleteConfiguration(id)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>exportConfigurationJson(config)</code> / <code>importConfigurationJson(json)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>getDecisionHistory()</code> / <code>saveDecision(result)</code> / <code>getDecisionById(id)</code> / <code>clearDecisionHistory()</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>exportDecisionJson(result)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>resetDemoConfiguration()</code></td>
+<td></td>
+</tr>
+</tbody></table>
+<p><code>storage/preapprovedStorage.ts</code> and <code>storage/aiAdvisorStorage.ts</code> expose the analogous get/save/update contracts for their own LocalStorage keys (see §C.2).</p>
+<h3>H.4 Segment lifecycle contracts (<code>engine/segmentEngine.ts</code>)</h3>
+<p><code>buildRoutingRulesFromSegments(segments)</code>, <code>validateSegmentRouting(segments)</code>, <code>computeSegmentConfigStatus(config, segmentId)</code>, <code>createSegment(config, input)</code>, <code>findSegmentDeleteBlockers(segmentId, history)</code>, <code>deleteSegment(config, segmentId)</code> — all pure functions returning a new <code>Configuration</code> (or a validation/status object), never mutating their input.</p>
+<hr>
+<h2>PART I – Sample Business Scenarios</h2>
+<p>All values below are computed from the exact current default configuration (§B.7/§B.9/§B.10). &quot;Contribution&quot; figures are percentage points of the final 0–1 score.</p>
+<h3>I.1 Kuwaiti Student (Sample A)</h3>
+<p><strong>Input:</strong> age 19, nationality KW, <code>student_allowance=180</code>, <code>cinet_score=640</code>, <code>debt_to_income=0</code> (obligations 0). <strong>Segment:</strong> Student (age 18–20). <strong>Eligibility:</strong> Civil ID Status → <strong>Not Applicable</strong> (Kuwaiti); Student Nationality → <strong>Pass</strong> (<code>nationality==KW</code>); Current Delinquency → Pass. <strong>Scoring:</strong> Allowance banded <code>[150,∞)→1.00</code> ×40% = 40.0; CINET banded <code>[500,650)? no →[500,650)</code> wait 640 falls in <code>[500,650)→0.45</code>... let&#39;s use configured bands: 640 is in <code>[500,650)→0.45</code> → contribution 0.45×35%=15.75; DTI <code>linear_inverted(0,0,1)=1.00</code>×25%=25.0. <strong>Final Score ≈ 0.807 (80.7%)</strong> → Decision Band 0.75–1.00 → <strong>APPROVE / Tier A</strong>. <strong>Credit Limit:</strong> MIN(100, 100, 500) = <strong>100 KWD</strong>.</p>
+<h3>I.2 Kuwaiti Young Adult (Sample B)</h3>
+<p><strong>Input:</strong> age 23, nationality KW, income 850, tenure 36mo, employer_tier large_corp, cinet 700, DTI 200/850=0.235. <strong>Segment:</strong> Young Adult (21–24). <strong>Eligibility:</strong> Civil ID Status Not Applicable (Kuwaiti); other gates Pass. <strong>Scoring:</strong> Income banded <code>[800,1500)→0.65</code>×30%=19.5; Tenure <code>linear(36,0,60)=0.6</code>×25%=15.0; Employer Tier <code>large_corp→0.85</code>×20%=17.0; CINET <code>linear(700,300,900)=0.667</code>×15%=10.0; Nationality <code>KW→1.00</code>×10%=10.0. <strong>Final Score ≈ 0.715 (71.5%)</strong> → Band 0.60–0.75 → <strong>APPROVE / Tier B</strong>. <strong>Credit Limit:</strong> MIN(300, 500, 500) = <strong>300 KWD</strong>.</p>
+<h3>I.3 Kuwaiti Established Customer (Sample C)</h3>
+<p><strong>Input:</strong> age 29, nationality KW, income 700, tenure 30mo, employer_tier sme, cinet 680, DTI 224/700=0.32. <strong>Segment:</strong> Established (25+). <strong>Eligibility:</strong> Civil ID Status Not Applicable; others Pass. <strong>Scoring (values below are exact, verified against a live run):</strong> Income banded <code>[500,800)→0.45</code>×20%=<strong>9.00</strong>; CINET <code>linear(680,300,900)=0.6333</code>×20%=<strong>12.67</strong>; DTI <code>linear_inverted(0.32,0,1)=0.68</code>×25%=<strong>17.00</strong>; Tenure <code>linear(30,0,120)=0.25</code>×15%=<strong>3.75</strong>; Employer Tier <code>sme→0.6</code>×10%=<strong>6.00</strong>; Nationality <code>KW→1.00</code>×10%=<strong>10.00</strong>. <strong>Final Score = 0.5842 (58.42%)</strong> → Band 0.45–0.60 → <strong>APPROVE / Tier C</strong>. <strong>Credit Limit:</strong> MIN(150, 500, 500) = <strong>150 KWD</strong>.</p>
+<h3>I.4 Non-Kuwaiti Customer (Sample D — Jordanian, Young Adult)</h3>
+<p>Identical inputs to Sample B except <code>nationality=JO</code>, explicit <code>residency_start_date=2018-01-01</code>. <strong>Eligibility:</strong> Civil ID Status <strong>evaluated normally</strong> (VALID → Pass) since non-Kuwaiti. <strong>Scoring (exact, verified):</strong> identical to I.2 for the first four factors (Income <strong>19.50</strong>, Tenure <strong>15.00</strong>, Employer Tier <strong>17.00</strong>, CINET <strong>10.00</strong>) except Nationality contributes <code>JO→0.50</code>×10%=<strong>5.00</strong> instead of 10.00. <strong>Final Score = 0.6650 (66.5%)</strong> → Band 0.60–0.75 → <strong>APPROVE / Tier B</strong>, Credit Limit <strong>300 KWD</strong>. Residency Duration/Stability are computed from the explicit start date, never fabricated.</p>
+<h3>I.5 CINET Unavailable (Sample F) — also demonstrates a Hard-Gate-Indeterminate override</h3>
+<p><strong>Input:</strong> Kuwaiti, Established, <code>cinet_status=NOT_CHECKED</code> → <code>cinet_score=null</code>; the sample also explicitly sets <code>total_overdue_bnpl_amount=null</code> and <code>cinet_open_accounts=null</code> (simulating the whole CINET bureau being unavailable, not just the score check). <strong>Scoring effect:</strong> the CINET Score row is <code>excluded</code> (<code>missingDataBehavior: exclude_and_reweight</code>) — remaining Established factors&#39; weights re-normalize from a 80%-available base to: Income 20/80=<strong>25%</strong>, DTI 25/80=<strong>31.25%</strong>, Tenure 15/80=<strong>18.75%</strong>, Employer Tier 10/80=<strong>12.5%</strong>, Nationality 10/80=<strong>12.5%</strong>. With income 900 (→0.65 banded), DTI 150/900=0.167 (→0.833 linear-inverted), tenure 60mo (→0.5 linear), employer_tier government (→1.0), nationality KW (→1.0): weighted sum = 16.25+26.03+9.38+12.50+12.50 = <strong>Final Score = 0.7666 (76.66%)</strong> — which by score alone falls in the 0.75–1.00 Approve/Tier A band.
+<strong>But</strong> <code>total_overdue_bnpl_amount</code> being unavailable also makes the <strong>derived</strong> <code>current_delinquency</code> field itself <code>null</code> (unavailable, never coerced to <code>false</code>) — so the <strong>Current Delinquency Hard Gate is Indeterminate</strong>, not Pass. An indeterminate applicable gate unconditionally forces the outcome down from Approve to <strong><code>MANUAL_REVIEW</code></strong>, and per §B.6/F.1 the Tier is cleared at the same time (<code>tier: null</code>). <strong>Verified actual result: <code>decisionOutcome: MANUAL_REVIEW</code>, <code>tier: null</code>, <code>creditLimit: 0</code>, <code>creditLimitCalculation: null</code></strong> — this is the correct behavior, not a bug: a genuinely unavailable bureau (both the score <em>and</em> the delinquency signal) should never auto-approve merely because the remaining factors happened to score well. This example is deliberately used here in place of a simpler &quot;CINET-only-unavailable-but-still-Approves&quot; case, because it demonstrates two independent missing-data mechanisms (scoring exclude-and-reweight, and hard-gate indeterminate-forces-review) compounding in one real, current-configuration decision.</p>
+<h3>I.6 Hard Gate Failure (constructed scenario)</h3>
+<p><strong>Input:</strong> any customer with a CINET-reported delinquent open account (<code>overdueBalance &gt; 0</code> or <code>dpd &gt; 0</code>) → <code>current_delinquency = true</code>. <strong>Effect:</strong> Current Delinquency gate <strong>Fails</strong> (<code>current_delinquency == false</code> required) → immediate <strong>REJECT</strong>, <code>creditLimit = 0</code>, no scoring performed at all, AI Advisor <strong>never invoked</strong> (the invocation gate requires <code>decisionOutcome === &#39;MANUAL_REVIEW&#39;</code>).</p>
+<h3>I.7 Score in Manual Review Band (constructed scenario)</h3>
+<p><strong>Input:</strong> a Jordanian Young Adult tuned (income 300, tenure 12mo, cinet 500, employer_tier sme) so the final score lands at <strong>≈0.33 (33%)</strong>. <strong>Effect:</strong> Band 0.30–0.45 → <strong>MANUAL_REVIEW</strong>, <code>tier = null</code>, no <code>creditLimitCalculation</code> — &quot;Manual Review Required. No automatic credit limit is assigned until this decision is resolved to Approve.&quot;</p>
+<h3>I.8 AI Manual Review Recommendation (continuing I.7)</h3>
+<p>Reviewer clicks &quot;Run AI Review&quot; (Simulated provider). The package shows: score 0.33, all Eligibility Rules <code>PASS</code>, no missing data. The Simulated advisor&#39;s rule: score is <strong>not</strong> within 2 points of the 0.45 band ceiling (0.33 vs. 0.45 is a 12-point gap) and no missing data → falls through to <strong>REJECT</strong> with <code>confidence: MEDIUM</code>, citing the actual weak scoring factors from the package. The reviewer sees &quot;Recommended: REJECT&quot;, reviews the cited Positive/Risk factors, and either <strong>Accepts</strong> (records <code>reviewerFinalDecision.decision = REJECT</code>) or <strong>Overrides</strong> (e.g. to <code>MANUAL_REVIEW</code> pending further documentation, with a mandatory Override Reason). Either way, the original deterministic <code>DecisionResult</code> (<code>decisionOutcome: MANUAL_REVIEW</code>) is never altered — only the separate <code>AiAdvisorAuditRecord</code> gains the reviewer&#39;s final call.</p>
+<hr>
+<h2>PART J – Application Rebuild Specification</h2>
+<p><em>This section is self-contained — no access to the original source code is required to use it.</em></p>
+<h3>J.1 Purpose</h3>
+<p>Build a <strong>frontend-only</strong> (no backend, no database) configurable BNPL credit-decisioning playground. All state persists in browser LocalStorage. The application must let a business user configure customer segments and, per segment, an eligibility/scoring/decisioning/credit-limit pipeline, then run synthetic customers through it and see a fully-explained result.</p>
+<h3>J.2 Required pages &amp; navigation</h3>
+<p>Sidebar, two sections:</p>
+<ul>
+<li><strong>Primary:</strong> Dashboard (<code>/</code>), Customer Playground (<code>/playground</code>), Segments (<code>/segments</code>), Decision Engine (<code>/decision-engine</code>).</li>
+<li><strong>Advanced Configuration:</strong> Preapproved Marketing List, Customer Data Fields, Integration Simulator, Configuration Versions, Decision History, Settings.</li>
+<li>Non-navigable: a decision result page reachable only by clicking a decision (Playground result, or a Decision History row).</li>
+</ul>
+<h3>J.3 Data model to implement</h3>
+<p>Implement exactly these entities (see Part G for full field lists): <code>Configuration</code> (top-level, versioned, one Active at a time), <code>Segment</code>, <code>RoutingRule</code> (always machine-derived from segments, never hand-edited by the UI), <code>HardGateRule</code>, <code>CustomerDataField</code>, <code>ScoringModel</code>/<code>ScoringInputConfig</code>, <code>DecisionBandDef</code>, <code>SegmentCreditLimitRule</code>, <code>GlobalSettings</code>, <code>IntegrationConfig</code>, <code>PreapprovedPolicy</code>/<code>PreapprovedEntry</code>/<code>PreapprovedBatch</code>, <code>AiAdvisorConfig</code>, <code>DecisionResult</code>, <code>HardGateResult</code>, <code>ScoringBreakdownRow</code>, <code>CreditLimitCalculation</code>, <code>AiDecisionPackage</code>, <code>AiAdvisorRecommendation</code>, <code>AiAdvisorAuditRecord</code>.</p>
+<h3>J.4 Decision flow (must match exactly)</h3>
+<ol>
+<li>Evaluate a <strong>Minimum Age</strong> prerequisite before any segment exists — fail → immediate <code>REJECT</code>, no segment, no scoring, no credit line, cannot be bypassed by any override mechanism.</li>
+<li><strong>Route to a Segment</strong> using only that segment&#39;s own <code>ageMin</code>/<code>ageMax</code> (first match by ascending priority over currently-active, age-range-mode segments; never route to an inactive segment; regenerate the routing-rule list from segments on every load rather than storing it as independently-editable data).</li>
+<li><strong>Evaluate Eligibility Rules</strong> scoped to that segment (a rule with no segment scope applies to all segments): each resolves to Pass / Fail / Unavailable-Indeterminate / Not-Applicable(skipped). Any Fail → immediate <code>REJECT</code>. Any Unavailable → force <code>MANUAL_REVIEW</code> later (never immediately — still let scoring run first for a complete audit trail, then override the outcome).</li>
+<li><strong>Score</strong> the customer against the segment&#39;s weighted, normalized Scoring Model (methods: linear, linear-inverted, banded, categorical, boolean). A factor whose data is missing either scores with its own configured fallback (&quot;use null default&quot;), or is dropped and the remaining factors&#39; weights are re-normalized back to 100% (&quot;exclude and reweight&quot;), optionally also forcing Manual Review (&quot;manual review&quot; behavior). If enabled weights don&#39;t total 100%, force <code>MANUAL_REVIEW</code> outright with no score computed.</li>
+<li>If too much of the score relied on fallback values (a configurable percentage threshold, default 50%), force <code>MANUAL_REVIEW</code>.</li>
+<li><strong>Match a Decision Band</strong> by the final 0–1 score (inclusive-min/exclusive-max, top band inclusive on both ends) to get an Outcome and, only for Approve, a Tier. If any of steps 3/4/5&#39;s Manual-Review triggers fired, downgrade an Approve outcome to Manual Review <strong>and clear the Tier</strong> — never show a Tier alongside a non-Approve outcome.</li>
+<li>Optionally apply a <strong>Preapproved Marketing List</strong> floor: if the customer matches (by verified civil id, then mobile) and passed all eligibility rules, promote a non-Approve outcome to Approve at the lowest configured Tier — this can never happen after a hard-gate Reject.</li>
+<li>If the final outcome is Approve: look up that Segment+Tier&#39;s configured KWD amount, and take <code>MIN(tierAmount, segmentMaximum, globalMaximum)</code> as the final credit limit. If the assigned Tier has no configured amount, flag this explicitly as a configuration error rather than silently returning a smaller number as if it were normal.</li>
+<li>If the final outcome is Manual Review: no automatic credit limit — optionally invoke an <strong>AI Advisor</strong> (see J.5), but its recommendation is never automatically final.</li>
+<li>If the final outcome is Reject: credit limit is always exactly 0.</li>
+<li>Persist one complete, immutable <code>DecisionResult</code> capturing every intermediate value (segment, every gate&#39;s result, every scoring factor&#39;s raw/normalized/weight/effective-weight/contribution/excluded status, the matched band, tier, and the full credit-limit calculation) so the whole decision can be explained without re-running anything.</li>
+</ol>
+<h3>J.5 AI Advisor requirements</h3>
+<ul>
+<li>Invoke <strong>only</strong> when the deterministic outcome is Manual Review and no hard gate confirmed-failed (a confirmed failure should already be architecturally unable to reach Manual Review).</li>
+<li>Send it a minimized package: score, band, per-gate Pass/Fail/Unavailable/Not-Applicable, per-factor raw value (or null if unavailable)/normalized score/weight/contribution/included flag, a list of missing-data labels, the segment&#39;s tier limits + segment max + global max, and the accumulated reason codes. <strong>Never</strong> include raw customer identity fields (name, civil id, etc.) or any protected/demographic attribute (nationality, gender, marital status, address) even if that attribute legitimately fed the deterministic score.</li>
+<li>Require a strict, closed JSON response shape: <code>recommendedAction</code> (<code>APPROVE</code>/<code>REJECT</code>/<code>REQUEST_MORE_INFORMATION</code> only), <code>confidence</code> (<code>LOW</code>/<code>MEDIUM</code>/<code>HIGH</code>), <code>recommendedTier</code>, <code>recommendedLimitKwd</code>, <code>summary</code>, <code>positiveFactors[]</code>, <code>riskFactors[]</code>, <code>missingInformation[]</code>, <code>reasonCodes[]</code>, <code>recommendedActionReason</code>. Reject any other shape outright.</li>
+<li>Clamp any recommended limit to <code>MIN(tier limit, segment max, global max)</code>; if it can&#39;t resolve a valid configured tier for an Approve recommendation, downgrade to Request-More-Information instead. Downgrade an Approve recommendation whose confidence is below a configured minimum threshold.</li>
+<li>On any failure (timeout/network/parse/invalid-value), never fabricate a result — the case stays Manual Review and the UI must say so explicitly.</li>
+<li>Ship with a deterministic, no-API-key &quot;Simulated&quot; provider as the default so the whole feature is usable out of the box; support (but do not require) a real LLM provider behind a settings-configurable API key, model, temperature, token limit, and timeout.</li>
+<li>Log an immutable audit record per invocation (see J.3), and let a human Reviewer Accept the recommendation, Override it (decision + tier + limit + a <strong>mandatory</strong> reason), or ask for more information — only the reviewer&#39;s own confirmation is ever operationally final, and it is stored separately from (never overwriting) both the AI recommendation and the original deterministic decision.</li>
+</ul>
+<h3>J.6 Formulas</h3>
+<pre><code>linear(v, min, max)          = clamp01((v - min) / (max - min))
+linear_inverted(v, min, max) = clamp01(1 - (v - min) / (max - min))
+banded(v, bands)             = first band where band.min &lt;= v &lt; band.max, else clamp to nearest edge band
+categorical(v, categories)   = categories[v] ?? categories[&#39;unknown&#39;] ?? 0
+effectiveWeight(input)       = (input.weight / totalWeightOfAvailableInputs) * 100
+contribution(input)          = normalizedScore * (effectiveWeight / 100)
+finalScore                   = clamp01(sum of all included contributions)
+finalCreditLimit             = max(0, min(tierLimit ?? ∞, segmentMaximum, globalMaximum))
+debtToIncome                 = monthlyDebtObligations / monthlyIncome   (null if either is unavailable/zero)
+</code></pre>
+<h3>J.7 Configurable values (must not be hardcoded in engine/UI code)</h3>
+<p>Segment list (id/code/name/age range/active/priority/product/creditAllowed), every Eligibility Rule, every Scoring Model&#39;s factors/weights/methods/missing-data behavior, every Decision Band&#39;s thresholds/outcome/tier, every Credit Limit Rule&#39;s tier amounts and segment maximum, the one Global Maximum, the Manual Review missing-weight threshold, the DTI source mode, every Field Catalog capability flag (including which fields are excluded from AI context), the AI Advisor&#39;s provider/model/parameters, and the Integration Simulator&#39;s per-system state and mock payloads.</p>
+<h3>J.8 Validation (must show inline, near the relevant section — never silently accepted)</h3>
+<p>See Part D.3 in full. In particular: Decision Bands must exactly tile <code>[0,1]</code>; Scoring Model enabled weights must total 100%; Credit Limit tiers must be internally ordered and within the segment/global ceiling; segment age ranges (of active, age-range-mode segments) must not overlap or leave a gap; an Eligibility Rule needs a condition and a fail-reason code (its unavailable-reason code is optional, defaulting to a constant &quot;DATA_UNAVAILABLE&quot; string at evaluation time, never a validation error).</p>
+<h3>J.9 Sample data</h3>
+<p>Seed at least: three default segments (Student 18–20, Young Adult 21–24, Established 25+, exact scoring/bands/limits per Part B.7/B.9/B.10) and 6–8 sample customers covering: a Kuwaiti customer per segment, at least one non-Kuwaiti customer with explicit residency data, one CINET-unavailable scenario, and one preapproved-list-match scenario. Never fabricate a data point purely to force a desired decision — every sample&#39;s outcome must be traceable to its own visible input fields.</p>
+<h3>J.10 Interaction expectations</h3>
+<p>Configuration edits on the consolidated Decision Engine page are staged in a local draft and committed atomically on an explicit Save action, with an unsaved-changes warning before navigating away from a dirty segment. Destructive removals (a gate, a factor, a band, a segment) require an explicit confirmation. Adding a new segment must immediately make it available everywhere (Decision Engine tabs, Playground routing) with no further action.</p>
+<hr>
+<h2>Appendix 1 – Key Differences from Original TDD</h2>
+<p>Verifiable from in-repo comments, migration functions, and structural evidence in the current code (not from external history):</p>
+<ol>
+<li><strong>Fully dynamic Segments.</strong> <code>Segment</code> gained <code>code</code>, <code>active</code>, <code>priority</code>, <code>routingMode</code>, <code>createdAt</code>, <code>updatedAt</code>; a full Add/Clone/Deactivate/Delete-with-history-guard lifecycle was added (<code>engine/segmentEngine.ts</code>). Migration comments explicitly describe this as new (&quot;Segments became fully dynamic/configurable&quot;).</li>
+<li><strong>Routing Rules eliminated as a hand-edited concept.</strong> <code>RoutingRule[]</code> is now always machine-derived from Segments (<code>buildRoutingRulesFromSegments</code>, applied unconditionally on every load) — the code comments explicitly frame this as removing a duplicated-data problem (&quot;Segment routing is configured directly on each Segment, never duplicated in a separately-edited Routing Rules list&quot;).</li>
+<li><strong>Consolidated Decision Engine page.</strong> <code>DecisionEnginePage.tsx</code> replaced four separate single-concept nav items (Scoring Inputs, Hard Gates, Decision Bands, Credit Limit Rules) with one segment-tabbed page; those four pages remain routable but are no longer in the sidebar.</li>
+<li><strong>Decision Bands vs. Credit Limit Rules were unified/separated.</strong> Migration <code>withCreditLimitRulesSeparation</code> explicitly documents removing a prior design where each Approve band carried its own KWD <code>limit</code> (duplicating a separate <code>segmentMaxLimits</code> map) — Decision Bands now determine only decision+tier, Credit Limit Rules is the sole source of monetary amounts.</li>
+<li><strong>Established segment maximum changed from 1500 to 500 KWD</strong>, and a specific historical corruption bug (a stale migration condition that reset every segment&#39;s tiers to empty and its maximum to a flat 500) was found and fixed, with a <strong>narrow-scope repair migration</strong> (<code>withCreditLimitRulesRepair</code>) that only fires on the exact historical corruption signature so it never overwrites a legitimate live validation error.</li>
+<li><strong>Student scoring model redesigned</strong> away from a salaried-employee shape (income/tenure/employer tier/age) to Student-specific factors (Allowance/CINET/Debt-Exposure); a &quot;Student Product Eligibility&quot; gate was replaced by &quot;Student Nationality&quot;; the old Guardian/Co-signer concept and several other hard gates (Sanctions Hit, Identity Match) were removed entirely.</li>
+<li><strong>Civil ID Status gained a Kuwaiti exemption</strong> via a new generic <code>skipConditions</code>/<code>skipDescription</code> mechanism on <code>HardGateRule</code>, applicable to any gate, not hardcoded to this one case.</li>
+<li><strong>Nationality unlocked for scoring.</strong> Previously <code>restrictedFromScoring</code>, Nationality now scores in Young Adult and Established (10% each, replacing Young Adult&#39;s prior Age-scoring factor and trimming Established&#39;s CINET weight from 30% to 20%) while remaining fully eligible as a Hard Gate condition — migration explicitly documents this as a business-rule change requiring a backfill.</li>
+<li><strong>New <code>aiExcluded</code> field-catalog flag</strong>, distinct from the older <code>restrictedFromScoring</code>, specifically so a field the deterministic engine <em>does</em> use (Nationality) can still be barred from the AI Advisor&#39;s context.</li>
+<li><strong>AI Manual Review Advisor added in its entirety</strong> — not present in any earlier state of the code; a wholly new module (<code>engine/aiAdvisorEngine.ts</code>, <code>models/aiAdvisor.ts</code>, <code>storage/aiAdvisorStorage.ts</code>, <code>components/AiAdvisorCard.tsx</code>) plus a new Settings section.</li>
+<li><strong>A decision-consistency bug was found and fixed</strong>: a band match&#39;s Tier could previously survive even after the Outcome was overridden away from Approve (e.g. by missing data), producing &quot;Tier C&quot; alongside &quot;Manual Review&quot; simultaneously. The Tier is now unconditionally cleared whenever the outcome isn&#39;t Approve.</li>
+<li><strong>Dashboard is simpler than a maximal design would suggest</strong> — no funnel chart, no AI-specific metrics, no per-segment average-limit breakdown, no filters currently exist (see Appendix 2).</li>
+</ol>
+<hr>
+<h2>Appendix 2 – Known Assumptions / Open Items</h2>
+<ul>
+<li><strong>Mock only / not production-ready:</strong> PACI, CINET, and Mobile ID are entirely simulated via the Integration Simulator; there is no real bureau or identity-provider contract implemented or referenced.</li>
+<li><strong>AI provider:</strong> the default &quot;Simulated&quot; provider is a deterministic rule-based stand-in, not a real model. The &quot;Anthropic&quot; provider code path is real (a genuine <code>POST</code> to <code>api.anthropic.com/v1/messages</code>) but calls it <strong>directly from the browser</strong> with no backend proxy — the UI explicitly warns this is acceptable for local experimentation only; a production deployment would require a server-side proxy so the API key is never exposed client-side. Requires a real Anthropic account/API key to exercise, which is not provided or embedded anywhere in this codebase.</li>
+<li><strong>Configuration Versioning is partially implemented.</strong> The <code>ConfigStatus</code> type includes <code>&#39;IN_REVIEW&#39;</code>, but no current UI action ever transitions a configuration into that state — only Draft ↔ Active ↔ Retired are reachable via the UI. The version &quot;Compare&quot; view is section-level (identical/different + character count), not a field-level diff.</li>
+<li><strong>Dashboard scope is deliberately minimal</strong> relative to what a fuller BI-style dashboard might include (no date-range filters, no AI-recommendation-acceptance-rate metric, no credit-limit distribution chart, no per-segment average-limit breakdown) — only the widgets listed in §B.19 are implemented.</li>
+<li><strong>Settings has no Business-vs-Advanced split</strong> — all settings fields are on one page today.</li>
+<li><strong>No authentication or per-user identity.</strong> &quot;Reviewer&quot; on the AI Advisor card is a free-text name field with no login system behind it — anyone with access to the browser can act as any reviewer.</li>
+<li><strong><code>ADVANCED</code> routing mode is a placeholder.</strong> The field exists on <code>Segment.routingMode</code> and is shown (disabled) in the UI as &quot;Advanced (Coming Soon)&quot;; no advanced-condition routing engine exists to back it.</li>
+<li><strong>No real persistence beyond one browser.</strong> Everything lives in that browser&#39;s LocalStorage; clearing site data, using a different browser, or a different device loses all configuration and history. There is no export/sync mechanism beyond the manual Configuration JSON export/import (which itself excludes the Preapproved Marketing List and Decision History/AI Audit data by design).</li>
+<li><strong>CINET fields flagged scoring-eligible but currently unused by any default model:</strong> <code>total_active_bnpl_accounts</code>, <code>total_monthly_bnpl_payment</code>, <code>total_overdue_bnpl_amount</code>, <code>worst_account_status</code>, <code>max_outstanding_payments_24m</code> are all marked <code>useForScoring: true</code> in the Field Catalog (so an administrator <em>can</em> add them as factors via the Decision Engine page) but none of the three default Scoring Models actually references them today — this is intentional headroom, not a bug, but worth knowing when reviewing &quot;what actually drives a score.&quot;</li>
+<li><strong>Residency Stability is a fully-defined but disabled-by-default scoring factor</strong> in both Young Adult and Established models (<code>enabled: false</code>) — present and configurable, but contributes nothing to the score unless an administrator explicitly enables it.</li>
+</ul>
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default' });
+</script>
+</body>
+</html>
